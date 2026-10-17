@@ -12,6 +12,14 @@ import (
 	"time"
 )
 
+/*
+* in the context of secure streaming, the proxy is
+* going to decrypt the media blocks. for now, keys and nonces
+* are configured manually
+* a version of diffie-hellman with authentication is to be implemented
+*/
+
+
 const blockSize = 1024
 
 const indexHTML = `<!doctype html>

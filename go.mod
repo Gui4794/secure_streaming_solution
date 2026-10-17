@@ -1,3 +1,3 @@
-module 3s-stream-proxy
+module secure_streaming_solution
 
 go 1.22

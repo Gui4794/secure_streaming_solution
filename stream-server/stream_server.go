@@ -13,9 +13,13 @@ import (
 	"strings"
 )
 
-// Stream Server translated from the professor's Java OriginSocketServer.
-// It deliberately uses raw TCP sockets and simple HTTP/1.1, as in the original.
-// No encryption, authentication, or secure channel has been added yet.
+/*
+* in the context of secure streaming, the server is
+* going to encrypt the media blocks. for now, keys and nonces
+* are configured manually
+* a version of diffie-hellman with authentication is to be implemented
+ */
+
 const blockSize = 1024
 
 func main() {
@@ -62,6 +66,11 @@ func main() {
 func handle(conn net.Conn, root string) {
 	defer conn.Close()
 
+	/*
+		 *
+		the server could generate its private key
+		as soon as the connection with the proxy is accepted
+	*/
 	reader := bufio.NewReader(conn)
 	requestLine, err := readLine(reader)
 	if err != nil {
