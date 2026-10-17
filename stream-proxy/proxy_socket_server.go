@@ -17,8 +17,7 @@ import (
 * going to decrypt the media blocks. for now, keys and nonces
 * are configured manually
 * a version of diffie-hellman with authentication is to be implemented
-*/
-
+ */
 
 const blockSize = 1024
 
@@ -144,9 +143,9 @@ func servePage(out io.Writer) {
 	_, _ = out.Write(page)
 }
 
+// this function is what the proxy server does when talking to the stream server
 func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 	name string, rangeHeader string, blockDelay time.Duration) {
-
 	origin, err := net.Dial("tcp", net.JoinHostPort(originHost, strconv.Itoa(originPort)))
 	if err != nil {
 		writeSimpleStatus(browser, 502, "Bad Gateway")
