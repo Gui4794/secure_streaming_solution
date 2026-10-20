@@ -46,7 +46,7 @@ func receivePublicKey(reader io.Reader) ([]byte, error) {
 		}
 	*/
 		publicKey := crypto.GetPublicKey(privateKey)
-		_, err = writer.Write(publicKey)
+		_, err := writer.Write(publicKey)
 		if err != nil {
 			//there is likely a better way to do this
 			fmt.Println(err.Error())

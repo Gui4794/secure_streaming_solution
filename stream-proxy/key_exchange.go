@@ -12,7 +12,7 @@ import (
 * and on what the proxy server has, computes a shared
 * secret
  */
-func establishSharedSecret(ownPrivateKey *ecdh.PrivateKey, receivedPublicKey *ecdh.PublicKey ([]byte, error) {
+func establishSharedSecret(ownPrivateKey *ecdh.PrivateKey, receivedPublicKey *ecdh.PublicKey) ([]byte, error) {
 	return ownPrivateKey.ECDH(receivedPublicKey), nil
 }
 
@@ -26,10 +26,10 @@ func receivePublicKey(reader io.Reader) (*ecdh.PublicKey, error) {
 	_, err := io.ReadFull(reader, receivedByteArray)
 	if err != nil {
 		fmt.Println(err.Error())
-		return nil
+		return nil, nil
 	}
 
-	receivedPublicKey, err = ecdh.X25519().NewPublicKey(receivedPublicKey)
+	receivedPublicKey, err := ecdh.X25519().NewPublicKey(receivedByteArray)
 	if err != nil {
 		fmt.Println(err.Error())
 	}
@@ -48,7 +48,7 @@ func sendPublicKey(privateKey *ecdh.PrivateKey, writer io.Writer) {
 			}
 	*/
 	publicKey := crypto.GetPublicKey(privateKey)
-	_, err = writer.Write(publicKey)
+	_, err := writer.Write(publicKey)
 	if err != nil {
 		//there is likely a better way to do this
 		fmt.Println(err.Error())
