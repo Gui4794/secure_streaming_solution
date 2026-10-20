@@ -35,7 +35,7 @@ func receivePublicKey(reader io.Reader) ([]byte, error) {
 	/*
   * added by gui: sends the public key
 	*/
-	func sendPublicKey(privateKey *PrivateKey, writer io.Writer) {
+	func sendPublicKey(privateKey *ecdh.PrivateKey, writer io.Writer) {
 		/*
 		my issue with this implementation VVVVVVVVV is that it'd generate the private key inside the function and there would
 		be no way to return it other than to actually return the private key into the function

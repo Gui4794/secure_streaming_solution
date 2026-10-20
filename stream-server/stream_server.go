@@ -67,21 +67,10 @@ func handle(conn net.Conn, root string) {
 	defer conn.Close()
 
 	/*
+		 *
 		the server could generate its private key
 		as soon as the connection with the proxy is accepted
-		maybe this entire ordeal could be stored in a doDiffieHellman()
 	*/
-	streamServerPrivateKey, err := crypto.GeneratePrivateKey()
-	if err != nil {
-		//there is likely a better way to do this
-		fmt.Println(err.Error())
-	}
-	sendPublicKey(streamServerPrivateKey, io.Writer)
-	proxyServerPublicKey := receivePublicKey(io.Reader)
-	[]byte sharedSecret = establishSharedSecret(streamServerPrivateKey, proxyServerPublicKey)
-	//TODO: the next step is: the server should encrypt the blocks with this key
-	//and the receiver should decrypt the blocks with this key
-
 	reader := bufio.NewReader(conn)
 	requestLine, err := readLine(reader)
 	if err != nil {
