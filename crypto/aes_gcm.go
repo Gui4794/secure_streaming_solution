@@ -17,7 +17,8 @@ Creates a new ACM cipher based on a key. Since NewCipher takes a []byte as input
 it first converts the key to a []byte
 */
 func createAcmCipher(key []byte) (cipher.Block, error) {
-	return aes.NewCipher(key)
+	return aes.NewCipher(key) //a função aceita a chave aes derivada pelo hkdf
+
 }
 
 // Generates a nonce
