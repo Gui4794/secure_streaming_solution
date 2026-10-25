@@ -226,7 +226,19 @@ func serveFile(out io.Writer, path string, size int64, rangeHeader string) {
 	 * encrypt it, and send it, though i am not sure if this would work
 	 */
 	// _, _ = io.CopyBuffer(out, io.LimitReader(file, length), make([]byte, blockSize))
-	_, _ = io.CopyBuffer(out, io.LimitReader(file, length), make([]byte, blockSize))
+
+	//the idea is to read the plaintext and cipher it
+	var plaintext []byte = make([]byte, blockSize)
+	for {
+		//everytime we do this, the plaintext buffer gets the bytes read
+		bytesRead, err = file.Read(plaintext)
+		if(err != nil && er != io.EOF) {
+			panic(error)
+		} else if(err == io.EOF) {
+			break
+		}
+		//now the idea is to use the AES-GCM library to encrypt this, and then send it
+	}
 }
 
 func writeStatus(out io.Writer, code int, reason string, length int64, extra string) {
@@ -234,8 +246,6 @@ func writeStatus(out io.Writer, code int, reason string, length int64, extra str
 }
 
 func writeHeaders(out io.Writer, code int, reason string, length int64, contentType, extra string) {
-	fmt.Fprintf(out, "HTTP/1.1 %d %s\r\n", code, reason)
-	if contentType != "" {
 		fmt.Fprintf(out, "Content-Type: %s\r\n", contentType)
 	}
 	fmt.Fprintf(out, "Content-Length: %d\r\nConnection: close\r\n", length)
