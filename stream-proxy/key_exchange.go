@@ -2,10 +2,34 @@ package main
 
 import (
 	"crypto/ecdh"
+	"crypto/rand"
 	"fmt"
 	"io"
 	"secure_streaming_solution/crypto"
 )
+
+/**
+ * Generates one's own public and private keys.
+ * For now, it uses P256, but we can use P384, P521 or X22519
+ */
+func generateKeyPair() (*ecdh.PublicKey, *ecdh.PrivateKey) {
+	privateKey, err := ecdh.P256().GenerateKey(rand.Reader)
+	if(err != nil) {
+		fmt.Println("something went wrong while generating a private key")
+	}
+	publicKey := privateKey.PublicKey()
+	return publicKey, privateKey
+}
+
+
+//Given an array of bytes, turns it into a public key
+func byteArrayToPublicKey(byteArray []byte) (*ecdh.PublicKey, error) {
+	receivedPublicKey, err := ecdh.X25519().NewPublicKey(byteArray)
+	if (err != nil) {
+		fmt.Println("something went wrong when parsing the byte array")
+	}
+	return receivedPublicKey, nil
+}
 
 /*
 * based on what was received from the stream server
@@ -29,7 +53,7 @@ func receivePublicKey(reader io.Reader) (*ecdh.PublicKey, error) {
 		return nil, nil
 	}
 
-	receivedPublicKey, err := ecdh.X25519().NewPublicKey(receivedByteArray)
+	receivedPublicKey, err := byteArrayToPublicKey(receivedByteArray)
 	if err != nil {
 		fmt.Println(err.Error())
 	}
@@ -38,15 +62,6 @@ func receivePublicKey(reader io.Reader) (*ecdh.PublicKey, error) {
 }
 
 func sendPublicKey(privateKey *ecdh.PrivateKey, writer io.Writer) {
-	/*
-		  my issue with this implementation VVVVVVVVV is that it'd generate the private key inside the function and there would
-		  be no way to return it other than to actually return the private key into the function
-			privateKey, err := crypto.GeneratePrivateKey()
-			if err != nil {
-				//there is likely a better way to do this
-				fmt.Println(err.Error())
-			}
-	*/
 	publicKey := crypto.GetPublicKey(privateKey)
 	_, err := writer.Write(publicKey)
 	if err != nil {

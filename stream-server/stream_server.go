@@ -71,7 +71,19 @@ func handle(conn net.Conn, root string) {
 		the server could generate its private key
 		as soon as the connection with the proxy is accepted
 	*/
+	/*streamPublicKey*/ _, streamPrivateKey := generateKeyPair()
+	sendPublicKey(streamPrivateKey, conn)
 	reader := bufio.NewReader(conn)
+	proxyPublicKey, err := receivePublicKey(reader)
+	sharedSecret, err := establishSharedSecret(streamPrivateKey, proxyPublicKey)
+	if(err != nil) {
+		fmt.Println("something went wrong in computing the shared secret")
+	}
+	sharedKey, err := byteArrayToPublicKey(sharedSecret)
+	if(err != nil) {
+		fmt.Println("something went wrong while computing the shared key")
+	}
+
 	requestLine, err := readLine(reader)
 	if err != nil {
 		writeStatus(conn, 400, "Bad Request", 0, "")
