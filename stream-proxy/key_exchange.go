@@ -10,10 +10,10 @@ import (
 
 /**
  * Generates one's own public and private keys.
- * For now, it uses P256, but we can use P384, P521 or X22519
+ * It uses X25519, other possible options are P384, P521 or P256
  */
 func generateKeyPair() (*ecdh.PublicKey, *ecdh.PrivateKey) {
-	privateKey, err := ecdh.P256().GenerateKey(rand.Reader)
+	privateKey, err := ecdh.X25519().GenerateKey(rand.Reader)
 	if(err != nil) {
 		fmt.Println("something went wrong while generating a private key")
 	}
