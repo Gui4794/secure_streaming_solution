@@ -153,18 +153,19 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 	}
 	defer origin.Close()
 
-	/*proxyPublicKey*/ _, proxyPrivateKey := generateKeyPair()
+	/*proxyPublicKey*/
+	_, proxyPrivateKey := generateKeyPair()
 	sendPublicKey(proxyPrivateKey, origin)
-		reader := bufio.NewReader(origin)
-		streamPublicKey, err := receivePublicKey(reader)
-		sharedSecret, err := establishSharedSecret(proxyPrivateKey, streamPublicKey)
-		if(err != nil) {
-			fmt.Println("something went wrong in computing the shared secret")
-		}
-		sharedKey, err := byteArrayToPublicKey(sharedSecret)
-		if(err != nil) {
-			fmt.Println("something went wrong while computing the shared key")
-		}
+	reader := bufio.NewReader(origin)
+	streamPublicKey, err := receivePublicKey(reader)
+	sharedSecret, err := establishSharedSecret(proxyPrivateKey, streamPublicKey)
+	if err != nil {
+		fmt.Println("something went wrong in computing the shared secret")
+	}
+	sharedKey, err := byteArrayToPublicKey(sharedSecret)
+	if err != nil {
+		fmt.Println("something went wrong while computing the shared key")
+	}
 	request := fmt.Sprintf("GET /media/%s HTTP/1.1\r\nHost: %s\r\n",
 		name, net.JoinHostPort(originHost, strconv.Itoa(originPort)))
 	if rangeHeader != "" {
@@ -180,7 +181,7 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		return
 	}
 
-	reader := bufio.NewReader(origin)
+	reader = bufio.NewReader(origin)
 	statusLine, err := readLine(reader)
 	if err != nil {
 		writeSimpleStatus(browser, 502, "Bad Gateway")

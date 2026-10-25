@@ -6,31 +6,30 @@
 package crypto
 
 import (
-	"io"
 	"crypto/aes"
-	"crypto/ecdh"
 	"crypto/cipher"
+	"crypto/ecdh"
 	"crypto/rand"
+	"io"
 )
 
 /*
 Creates a new ACM cipher based on a key. Since NewCipher takes a []byte as input,
 it first converts the key to a []byte
 */
-func createAcmCipher(key *ecdh.PublicKey) (cipher.Block, error){
+func createAcmCipher(key *ecdh.PublicKey) (cipher.Block, error) {
 	block, err := aes.NewCipher(key.Bytes())
-	if (err != nil) {
+	if err != nil {
 		panic(err)
 	}
 	return block, nil
 }
 
-
-//Generates a nonce
-func generateNonce() ([]byte) {
+// Generates a nonce
+func generateNonce() []byte {
 	nonce := make([]byte, 12)
 	_, err := io.ReadFull(rand.Reader, nonce)
-	if (err != nil) {
+	if err != nil {
 		panic(err)
 	}
 	return nonce
@@ -42,9 +41,9 @@ func generateNonce() ([]byte) {
  * TODO: possibly send in this function, too? achievable by adding a destination []byte
  * Returns the ciphered content (i think?)
  */
-func cipherBlock(plaintext []byte, block cipher.Block, nonce []byte) ([]byte) {
+func cipherBlock(plaintext []byte, block cipher.Block, nonce []byte) []byte {
 	aesgcm, err := cipher.NewGCM(block)
-	if(err != nil) {
+	if err != nil {
 		panic(err)
 	}
 	return aesgcm.Seal(nil, nonce, plaintext, nil)
@@ -57,3 +56,7 @@ into a block, ready to be sent
 func packageContents(block cipher.Block, nonce []byte) {
 	return
 }
+
+// estes comentarios estão aqui porque eu (beatriz) esqueço me do que estou a fazer a meio
+// mas o meu plano é :
+// Diffie-Hellman → sharedSecret → HKDF → AES-256 Key (o dh estabelece o segredo comum, o HKDF transforma numa chave para AES-GCM )

@@ -71,16 +71,17 @@ func handle(conn net.Conn, root string) {
 		the server could generate its private key
 		as soon as the connection with the proxy is accepted
 	*/
-	/*streamPublicKey*/ _, streamPrivateKey := generateKeyPair()
+	/*streamPublicKey*/
+	_, streamPrivateKey := generateKeyPair()
 	sendPublicKey(streamPrivateKey, conn)
 	reader := bufio.NewReader(conn)
 	proxyPublicKey, err := receivePublicKey(reader)
 	sharedSecret, err := establishSharedSecret(streamPrivateKey, proxyPublicKey)
-	if(err != nil) {
+	if err != nil {
 		fmt.Println("something went wrong in computing the shared secret")
 	}
 	sharedKey, err := byteArrayToPublicKey(sharedSecret)
-	if(err != nil) {
+	if err != nil {
 		fmt.Println("something went wrong while computing the shared key")
 	}
 
@@ -228,29 +229,39 @@ func serveFile(out io.Writer, path string, size int64, rangeHeader string) {
 	// _, _ = io.CopyBuffer(out, io.LimitReader(file, length), make([]byte, blockSize))
 
 	//the idea is to read the plaintext and cipher it
+	/*  comentei esta função pq estava a dar erros e eu precisava de implementar outras coisas primeiro ass:beatriz
 	var plaintext []byte = make([]byte, blockSize)
 	for {
 		//everytime we do this, the plaintext buffer gets the bytes read
 		bytesRead, err = file.Read(plaintext)
-		if(err != nil && er != io.EOF) {
+		if err != nil && er != io.EOF {
 			panic(error)
-		} else if(err == io.EOF) {
+		} else if err == io.EOF {
 			break
 		}
 		//now the idea is to use the AES-GCM library to encrypt this, and then send it
-	}
+		}*/
+
+	_, _ = io.CopyBuffer(out, io.LimitReader(file, length), make([]byte, blockSize)) //para apagar quando tivermos a função de cima
 }
 
 func writeStatus(out io.Writer, code int, reason string, length int64, extra string) {
 	writeHeaders(out, code, reason, length, "", extra)
 }
 
+// cria e envia os cabeçalhos HTTP do Stream Server para o Proxy
 func writeHeaders(out io.Writer, code int, reason string, length int64, contentType, extra string) {
-		fmt.Fprintf(out, "Content-Type: %s\r\n", contentType)
+	fmt.Fprintf(out, "HTTP/1.1 %d %s\r\n", code, reason)
+
+	if contentType != "" {
+		fmt.Fprintf(out, "Content-Type: %s\r\n", contentType) // content-type ex: video/mp4
 	}
+
 	fmt.Fprintf(out, "Content-Length: %d\r\nConnection: close\r\n", length)
+
 	if extra != "" {
 		io.WriteString(out, extra)
 	}
+
 	io.WriteString(out, "\r\n")
 }
