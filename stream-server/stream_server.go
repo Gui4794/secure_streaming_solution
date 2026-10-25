@@ -220,6 +220,12 @@ func serveFile(out io.Writer, path string, size int64, rangeHeader string) {
 
 	writeHeaders(out, code, reason, length, "video/mp4", extra)
 	// Use a 1024-byte buffer to send the file without buffering it entirely.
+	/*
+	 * from my understanding, io.CopyBuffer is doing a for loop (i checked its source code).
+	 * a possible implementation would be to make this process more manual: we craft the block,
+	 * encrypt it, and send it, though i am not sure if this would work
+	 */
+	// _, _ = io.CopyBuffer(out, io.LimitReader(file, length), make([]byte, blockSize))
 	_, _ = io.CopyBuffer(out, io.LimitReader(file, length), make([]byte, blockSize))
 }
 

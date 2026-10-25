@@ -165,7 +165,6 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		if(err != nil) {
 			fmt.Println("something went wrong while computing the shared key")
 		}
-
 	request := fmt.Sprintf("GET /media/%s HTTP/1.1\r\nHost: %s\r\n",
 		name, net.JoinHostPort(originHost, strconv.Itoa(originPort)))
 	if rangeHeader != "" {
