@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"secure_streaming_solution/crypto"
 	"strconv"
 	"strings"
 )
@@ -80,11 +81,13 @@ func handle(conn net.Conn, root string) {
 	if err != nil {
 		fmt.Println("something went wrong in computing the shared secret")
 	}
-	sharedKey, err := byteArrayToPublicKey(sharedSecret)
+	aesKey, err := crypto.DeriveAESKey(sharedSecret)
 	if err != nil {
-		fmt.Println("something went wrong while computing the shared key")
+		fmt.Println("failed to derive AES key:", err)
+		return
 	}
 
+	fmt.Println("AES key derived:", len(aesKey), "bytes")
 	requestLine, err := readLine(reader)
 	if err != nil {
 		writeStatus(conn, 400, "Bad Request", 0, "")

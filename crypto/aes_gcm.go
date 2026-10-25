@@ -56,7 +56,3 @@ into a block, ready to be sent
 func packageContents(block cipher.Block, nonce []byte) {
 	return
 }
-
-// estes comentarios estão aqui porque eu (beatriz) esqueço me do que estou a fazer a meio
-// mas o meu plano é :
-// Diffie-Hellman → sharedSecret → HKDF → AES-256 Key (o dh estabelece o segredo comum, o HKDF transforma numa chave para AES-GCM )
