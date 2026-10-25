@@ -13,7 +13,7 @@ import (
 * secret
  */
 func establishSharedSecret(ownPrivateKey *ecdh.PrivateKey, receivedPublicKey *ecdh.PublicKey) ([]byte, error) {
-	return ownPrivateKey.ECDH(receivedPublicKey), nil
+	return ownPrivateKey.ECDH(receivedPublicKey)
 }
 
 /*
