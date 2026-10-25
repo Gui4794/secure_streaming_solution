@@ -8,7 +8,6 @@ package crypto
 import (
 	"crypto/aes"
 	"crypto/cipher"
-	"crypto/ecdh"
 	"crypto/rand"
 	"io"
 )
@@ -17,12 +16,8 @@ import (
 Creates a new ACM cipher based on a key. Since NewCipher takes a []byte as input,
 it first converts the key to a []byte
 */
-func createAcmCipher(key *ecdh.PublicKey) (cipher.Block, error) {
-	block, err := aes.NewCipher(key.Bytes())
-	if err != nil {
-		panic(err)
-	}
-	return block, nil
+func createAcmCipher(key []byte) (cipher.Block, error) {
+	return aes.NewCipher(key)
 }
 
 // Generates a nonce
