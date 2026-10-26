@@ -9,6 +9,8 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"encoding/binary"
+	"fmt"
 	"io"
 )
 
@@ -37,18 +39,36 @@ func generateNonce() []byte {
  * TODO: possibly send in this function, too? achievable by adding a destination []byte
  * Returns the ciphered content (i think?)
  */
-func cipherBlock(plaintext []byte, block cipher.Block, nonce []byte) []byte {
+func cipherBlock(plaintext []byte, block cipher.Block, nonce []byte) ([]byte, error) {
 	aesgcm, err := cipher.NewGCM(block)
 	if err != nil {
-		panic(err)
+		return nil, err
 	}
-	return aesgcm.Seal(nil, nonce, plaintext, nil)
+
+	if len(nonce) != aesgcm.NonceSize() {
+		return nil, fmt.Errorf("invalid nonce size") //agora lida com erros
+	}
+
+	ciphertext := aesgcm.Seal(nil, nonce, plaintext, nil)
+
+	return ciphertext, nil
 }
 
 /*
 Given a nonce and a block, packages both
 into a block, ready to be sent
 */
-func packageContents(block cipher.Block, nonce []byte) {
-	return
+func PackageContents(seq uint64, nonce []byte, ciphertext []byte) ([]byte, error) {
+	if len(nonce) != 12 {
+		return nil, fmt.Errorf("invalid nonce size")
+	}
+
+	packet := make([]byte, 8+len(nonce)+len(ciphertext))
+
+	binary.BigEndian.PutUint64(packet[:8], seq)
+
+	copy(packet[8:20], nonce)
+	copy(packet[20:], ciphertext)
+
+	return packet, nil
 }
