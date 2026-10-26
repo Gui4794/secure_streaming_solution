@@ -33,23 +33,24 @@ func generateNonce() []byte {
 	return nonce
 }
 
-/*
- * Given plaintext, a block and a nonce,
- * ciphers them into a block
- * TODO: possibly send in this function, too? achievable by adding a destination []byte
- * Returns the ciphered content (i think?)
- */
-func cipherBlock(plaintext []byte, block cipher.Block, nonce []byte) ([]byte, error) {
+func EncryptBlock(plaintext []byte, block cipher.Block, nonce []byte, seq uint64) ([]byte, error) {
+	//create teh aes-gcm cipher
 	aesgcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, err
 	}
 
+	//Check if nonce has tamanho certo
 	if len(nonce) != aesgcm.NonceSize() {
-		return nil, fmt.Errorf("invalid nonce size") //agora lida com erros
+		return nil, fmt.Errorf("invalid nonce size")
 	}
 
-	ciphertext := aesgcm.Seal(nil, nonce, plaintext, nil)
+	//converte seq number into 8 bytes for authentication
+	aad := make([]byte, 8)
+	binary.BigEndian.PutUint64(aad, seq)
+
+	//encrypt the plaintext and sequence number
+	ciphertext := aesgcm.Seal(nil, nonce, plaintext, aad)
 
 	return ciphertext, nil
 }
@@ -72,3 +73,38 @@ func PackageContents(seq uint64, nonce []byte, ciphertext []byte) ([]byte, error
 
 	return packet, nil
 }
+
+/*
+ * decrypts a block encrypted with AES-GCM.
+ * verifies the authentication tag and the sequence number
+ * returns the original plaintext if authentication succeeds.
+ */
+func DecryptBlock(ciphertext []byte, block cipher.Block, nonce []byte, seq uint64) ([]byte, error) {
+	aesgcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(nonce) != aesgcm.NonceSize() {
+		return nil, fmt.Errorf("invalid nonce size")
+	}
+
+	// reconstruct the same verification tag and sequence number used during encryption
+	aad := make([]byte, 8)
+	binary.BigEndian.PutUint64(aad, seq)
+
+	// verify authenticity and decrypt the ciphertext
+	return aesgcm.Open(nil, nonce, ciphertext, aad)
+}
+
+/*
+Formato do payload de um bloco
+
+Número de sequência do bloco 8 bytes
+
+Nonce — 12 bytes
+Valor usado na cifragem AES-GCM
+
+Ciphertext + Tag (16) — tamanho variável
+
+*/
