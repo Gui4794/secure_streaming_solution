@@ -97,6 +97,28 @@ func DecryptBlock(ciphertext []byte, block cipher.Block, nonce []byte, seq uint6
 	return aesgcm.Open(nil, nonce, ciphertext, aad)
 }
 
+//FALTA IMPEDIR AUTENTACIDADE E REPLAYYY
+
+// vamos separar os 3 componentes na decifragem
+func UnpackContentes(packet []byte) (uint64, []byte, []byte, error) {
+
+	//check the minimo packet size ,8-seq 12-nonce 16gcm tag = 36
+	if len(packet) < 36 {
+		return 0, nil, nil, fmt.Errorf("invalid packet size")
+	}
+
+	//extract the seq number
+	seq := binary.BigEndian.Uint64(packet[:8])
+
+	//extrat the nonce
+	nonce := packet[8:20]
+
+	//extract the encrypted block and authentication tag
+	ciphertext := packet[20:]
+
+	return seq, nonce, ciphertext, nil
+}
+
 /*
 Formato do payload de um bloco
 
