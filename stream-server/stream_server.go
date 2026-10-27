@@ -249,7 +249,8 @@ func serveFile(out io.Writer, aesKey []byte, path string, size int64, rangeHeade
 			if err != nil {
 				panic(err)
 			}
-			out.Write(encryptedBlock)
+			ciphertext, err := crypto.PackageContents(sequenceNumber, nonce, encryptedBlock)
+			out.Write(ciphertext)
 
 		}
 
