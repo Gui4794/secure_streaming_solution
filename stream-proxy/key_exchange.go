@@ -64,8 +64,7 @@ func receivePublicKey(reader io.Reader) (*ecdh.PublicKey, error) {
 func sendPublicKey(publicKey *ecdh.PublicKey, writer io.Writer) {
 	_, err := writer.Write(publicKey.Bytes())
 	if err != nil {
-		//there is likely a better way to do this
-		fmt.Println(err.Error())
+		panic(err)
 	}
 }
 

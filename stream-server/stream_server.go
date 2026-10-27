@@ -145,7 +145,7 @@ func handle(conn net.Conn, root string) {
 		writeStatus(conn, 404, "Not Found", 0, "")
 		return
 	}
-	serveFile(conn, finalPath, info.Size(), rangeHeader)
+	serveFile(conn, aesKey, finalPath, info.Size(), rangeHeader)
 }
 
 // parseRange accepts a single HTTP bytes range (start-end, start-, or -suffix).
@@ -195,7 +195,7 @@ func parseRange(header string, size int64) (start, end int64, partial, unsatisfi
 	return s, e, true, false
 }
 
-func serveFile(out io.Writer, path string, size int64, rangeHeader string) {
+func serveFile(out io.Writer, aesKey []byte, path string, size int64, rangeHeader string) {
 	start, end, partial, unsatisfiable := parseRange(rangeHeader, size)
 	if unsatisfiable {
 		writeStatus(out, 416, "Range Not Satisfiable", 0,
@@ -228,9 +228,6 @@ func serveFile(out io.Writer, path string, size int64, rangeHeader string) {
 	 * a possible implementation would be to make this process more manual: we craft the block,
 	 * encrypt it, and send it, though i am not sure if this would work
 	 */
-
-	//the idea is to read the plaintext and cipher it
-	//  comentei esta função pq estava a dar erros e eu precisava de implementar outras coisas primeiro ass:beatriz
 	var plaintext []byte = make([]byte, blockSize)
 	for {
 			//everytime we do this, the plaintext buffer gets the bytes read
@@ -242,8 +239,18 @@ func serveFile(out io.Writer, path string, size int64, rangeHeader string) {
 			}
 			//now the idea is to use the AES-GCM library to encrypt this, and then send it
 			var sequenceNumber uint64 = 1
+
+			block, err := crypto.CreateAcmCipher(aesKey)
+			if err != nil {
+				panic(err)
+			}
 			nonce := crypto.GenerateNonce()
-			encryptedBlock, err := EncryptBlock(plaintext, nonce, sequenceNumber)
+			encryptedBlock, err := crypto.EncryptBlock(plaintext, block, nonce, sequenceNumber)
+			if err != nil {
+				panic(err)
+			}
+			out.Write(encryptedBlock)
+
 		}
 
 	_, _ = io.CopyBuffer(out, io.LimitReader(file, length), make([]byte, blockSize)) //para apagar quando tivermos a função de cima
