@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/aes"
 	"fmt"
 	"io"
 	"log"
@@ -168,6 +169,8 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		return
 	}
 
+	cipher, _ := crypto.CreateAcmCipher(aesKey)
+
 	fmt.Println("AES key derived:", len(aesKey), "bytes")
 	request := fmt.Sprintf("GET /media/%s HTTP/1.1\r\nHost: %s\r\n",
 		name, net.JoinHostPort(originHost, strconv.Itoa(originPort)))
@@ -256,6 +259,7 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 	if contentLength <= 0 {
 		return
 	}
+	//this is the part that receives the blocks from the streaming server
 	buf := make([]byte, blockSize)
 	remaining := contentLength
 	for remaining > 0 {
@@ -263,7 +267,11 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		if remaining < toRead {
 			toRead = remaining
 		}
+		//FIXME this is probably wrong
 		n, err := reader.Read(buf[:int(toRead)])
+		sequenceNumber, nonce, ciphertext, err := crypto.UnpackContents(buf[:n])
+		decryptedBlock, err := crypto.DecryptBlock(ciphertext, block, nonce, sequenceNumber)
+		sequenceNumber, nonce, ciphertext, err = crypto.UnpackContents(decryptedBlock)
 		if n > 0 {
 			if blockDelay > 0 {
 				time.Sleep(blockDelay)
