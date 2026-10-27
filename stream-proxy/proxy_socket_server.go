@@ -154,9 +154,8 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 	}
 	defer origin.Close()
 
-	/*proxyPublicKey*/
-	_, proxyPrivateKey := generateKeyPair()
-	sendPublicKey(proxyPrivateKey, origin)
+	proxyPublicKey, proxyPrivateKey := generateKeyPair()
+	sendPublicKey(proxyPublicKey, origin)
 	reader := bufio.NewReader(origin)
 	streamPublicKey, err := receivePublicKey(reader)
 	sharedSecret, err := establishSharedSecret(proxyPrivateKey, streamPublicKey)

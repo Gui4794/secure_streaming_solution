@@ -68,13 +68,12 @@ func handle(conn net.Conn, root string) {
 	defer conn.Close()
 
 	/*
-		 *
-		the server could generate its private key
-		as soon as the connection with the proxy is accepted
+	the server could generate its private key
+	as soon as the connection with the proxy is accepted
 	*/
 	/*streamPublicKey*/
-	_, streamPrivateKey := generateKeyPair()
-	sendPublicKey(streamPrivateKey, conn)
+	streamPublicKey, streamPrivateKey := generateKeyPair()
+	sendPublicKey(streamPublicKey, conn)
 	reader := bufio.NewReader(conn)
 	proxyPublicKey, err := receivePublicKey(reader)
 	sharedSecret, err := establishSharedSecret(streamPrivateKey, proxyPublicKey)
@@ -229,21 +228,23 @@ func serveFile(out io.Writer, path string, size int64, rangeHeader string) {
 	 * a possible implementation would be to make this process more manual: we craft the block,
 	 * encrypt it, and send it, though i am not sure if this would work
 	 */
-	// _, _ = io.CopyBuffer(out, io.LimitReader(file, length), make([]byte, blockSize))
 
 	//the idea is to read the plaintext and cipher it
-	/*  comentei esta função pq estava a dar erros e eu precisava de implementar outras coisas primeiro ass:beatriz
+	//  comentei esta função pq estava a dar erros e eu precisava de implementar outras coisas primeiro ass:beatriz
 	var plaintext []byte = make([]byte, blockSize)
 	for {
-		//everytime we do this, the plaintext buffer gets the bytes read
-		bytesRead, err = file.Read(plaintext)
-		if err != nil && er != io.EOF {
-			panic(error)
-		} else if err == io.EOF {
-			break
+			//everytime we do this, the plaintext buffer gets the bytes read
+			bytesRead, err := file.Read(plaintext)
+			if err != nil && err != io.EOF {
+				panic(err)
+			} else if err == io.EOF || bytesRead == int(length) {
+				break
+			}
+			//now the idea is to use the AES-GCM library to encrypt this, and then send it
+			var sequenceNumber uint64 = 1
+			nonce := crypto.GenerateNonce()
+			encryptedBlock, err := EncryptBlock(plaintext, nonce, sequenceNumber)
 		}
-		//now the idea is to use the AES-GCM library to encrypt this, and then send it
-		}*/
 
 	_, _ = io.CopyBuffer(out, io.LimitReader(file, length), make([]byte, blockSize)) //para apagar quando tivermos a função de cima
 }

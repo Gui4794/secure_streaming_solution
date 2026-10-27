@@ -18,13 +18,13 @@ import (
 Creates a new ACM cipher based on a key. Since NewCipher takes a []byte as input,
 it first converts the key to a []byte
 */
-func createAcmCipher(key []byte) (cipher.Block, error) {
+func CreateAcmCipher(key []byte) (cipher.Block, error) {
 	return aes.NewCipher(key) //a função aceita a chave aes derivada pelo hkdf
 
 }
 
 // Generates a nonce
-func generateNonce() []byte {
+func GenerateNonce() []byte {
 	nonce := make([]byte, 12)
 	_, err := io.ReadFull(rand.Reader, nonce)
 	if err != nil {
@@ -97,10 +97,10 @@ func DecryptBlock(ciphertext []byte, block cipher.Block, nonce []byte, seq uint6
 	return aesgcm.Open(nil, nonce, ciphertext, aad)
 }
 
-//FALTA IMPEDIR AUTENTACIDADE E REPLAYYY
+//FALTA IMPEDIR AUTENTICIDADE E REPLAYYY
 
 // vamos separar os 3 componentes na decifragem
-func UnpackContentes(packet []byte) (uint64, []byte, []byte, error) {
+func UnpackContents(packet []byte) (uint64, []byte, []byte, error) {
 
 	//check the minimo packet size ,8-seq 12-nonce 16gcm tag = 36
 	if len(packet) < 36 {

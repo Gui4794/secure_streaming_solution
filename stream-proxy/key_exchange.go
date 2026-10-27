@@ -61,9 +61,8 @@ func receivePublicKey(reader io.Reader) (*ecdh.PublicKey, error) {
 	return receivedPublicKey, nil
 }
 
-func sendPublicKey(privateKey *ecdh.PrivateKey, writer io.Writer) {
-	publicKey := crypto.GetPublicKey(privateKey)
-	_, err := writer.Write(publicKey)
+func sendPublicKey(publicKey *ecdh.PublicKey, writer io.Writer) {
+	_, err := writer.Write(publicKey.Bytes())
 	if err != nil {
 		//there is likely a better way to do this
 		fmt.Println(err.Error())
