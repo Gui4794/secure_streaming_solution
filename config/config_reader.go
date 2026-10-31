@@ -23,17 +23,18 @@ const (
 * of a config (*.config) file. Note that it assumes
 * a file is exactly how it is in the handout
  */
+
 type ConfigOutput struct {
-	CipherAlgorithm string `xml: "SymCipherSuite>Algorithm"`
-	CipherMode      string `xml: "SymCipherSuite>Mode"`
-	IV              string `xml: "SymCipherSuite>InitializationVector>IV`
-	IVSize          int    `xml: "SymCipherSuite>InitializationVector>IVSize"`
-	Padding         string `xml: "SumCipherSuite>Padding"`
-	MacAlgorithm    string `xml: "MACSuite>Algorithm"`
-	SymKey          []byte `xml: "ConfiguredKeys>SymmetricKey>SKey"`
-	SymKeySize      int    `xml: "ConfiguredKeys>SymmetricKey>Keysize"`
-	MacKey          []byte `xml: "MACKey>MacKey"`
-	MacKeySize      int    `xml: "MACKey>MacKeySize"`
+	CipherAlgorithm string `xml:"SymCipherSuite>Algorithm"`
+	CipherMode      string `xml:"SymCipherSuite>Mode"`
+	IV              string `xml:"SymCipherSuite>InitializationVector>IV"`
+	IVSize          int    `xml:"SymCipherSuite>InitializationVector>IVSize"`
+	Padding         string `xml:"SymCipherSuite>Padding"`
+	MacAlgorithm    string `xml:"MACSuite>Algorithm"`
+	SymKey          string `xml:"ConfiguredKeys>SymmetricKey>SKey"`
+	SymKeySize      int    `xml:"ConfiguredKeys>SymmetricKey>Keysize"`
+	MacKey          string `xml:"ConfiguredKeys>MACKey>MacKey"`
+	MacKeySize      string `xml:"ConfiguredKeys>MACKey>MacKeySize"`
 }
 
 /*
