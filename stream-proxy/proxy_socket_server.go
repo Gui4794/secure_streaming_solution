@@ -8,10 +8,12 @@ import (
 	"log"
 	"net"
 	"os"
-	"secure_streaming_solution/crypto"
 	"strconv"
 	"strings"
 	"time"
+
+	"secure_streaming_solution/config"
+	"secure_streaming_solution/crypto"
 )
 
 /*
@@ -41,6 +43,33 @@ const indexHTML = `<!doctype html>
 </body></html>`
 
 func main() {
+	configOutput, err := config.ParseConfigFile(config.ProxyServer)
+	if err != nil {
+		panic(err)
+	}
+
+	// TODO: remove these printlns once these variables are used
+	cipherAlgorithm := configOutput.CipherAlgorithm
+	fmt.Println(cipherAlgorithm)
+	cipherMode := configOutput.CipherMode
+	fmt.Println(cipherMode)
+	iv := configOutput.IV
+	fmt.Println(iv)
+	ivSize := configOutput.IVSize
+	fmt.Println(ivSize)
+	padding := configOutput.Padding
+	fmt.Println(padding)
+	macAlgorithm := configOutput.MacAlgorithm
+	fmt.Println(macAlgorithm)
+	symKey := configOutput.SymKey
+	fmt.Println(symKey)
+	symKeySize := configOutput.SymKeySize
+	fmt.Println(symKeySize)
+	macKey := configOutput.MacKey
+	fmt.Println(macKey)
+	macKeySize := configOutput.MacKeySize
+	fmt.Println(macKeySize)
+
 	port := 8080
 	originHost := "localhost"
 	originPort := 8081
@@ -147,7 +176,8 @@ func servePage(out io.Writer) {
 
 // this function is what the proxy server does when talking to the stream server
 func relayFromOrigin(browser io.Writer, originHost string, originPort int,
-	name string, rangeHeader string, blockDelay time.Duration) {
+	name string, rangeHeader string, blockDelay time.Duration,
+) {
 	origin, err := net.Dial("tcp", net.JoinHostPort(originHost, strconv.Itoa(originPort)))
 	if err != nil {
 		writeSimpleStatus(browser, 502, "Bad Gateway")
@@ -332,7 +362,6 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		remaining -= chunkSize
 		expectedSeq++
 	}
-
 }
 
 func writeSimpleStatus(out io.Writer, code int, reason string) {

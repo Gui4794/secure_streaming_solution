@@ -9,9 +9,11 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"secure_streaming_solution/crypto"
 	"strconv"
 	"strings"
+
+	"secure_streaming_solution/config"
+	"secure_streaming_solution/crypto"
 )
 
 /*
@@ -24,6 +26,33 @@ import (
 const blockSize = 1024
 
 func main() {
+	configOutput, err := config.ParseConfigFile(config.StreamServer)
+	if err != nil {
+		panic(err)
+	}
+
+	// TODO: remove these printlns once these variables are used
+	cipherAlgorithm := configOutput.CipherAlgorithm
+	fmt.Println(cipherAlgorithm)
+	cipherMode := configOutput.CipherMode
+	fmt.Println(cipherMode)
+	iv := configOutput.IV
+	fmt.Println(iv)
+	ivSize := configOutput.IVSize
+	fmt.Println(ivSize)
+	padding := configOutput.Padding
+	fmt.Println(padding)
+	macAlgorithm := configOutput.MacAlgorithm
+	fmt.Println(macAlgorithm)
+	symKey := configOutput.SymKey
+	fmt.Println(symKey)
+	symKeySize := configOutput.SymKeySize
+	fmt.Println(symKeySize)
+	macKey := configOutput.MacKey
+	fmt.Println(macKey)
+	macKeySize := configOutput.MacKeySize
+	fmt.Println(macKeySize)
+
 	port := 8081
 	mediaDir := "media"
 	if len(os.Args) > 1 {
@@ -68,8 +97,8 @@ func handle(conn net.Conn, root string) {
 	defer conn.Close()
 
 	/*
-	the server could generate its private key
-	as soon as the connection with the proxy is accepted
+		the server could generate its private key
+		as soon as the connection with the proxy is accepted
 	*/
 	/*streamPublicKey*/
 	streamPublicKey, streamPrivateKey := generateKeyPair()
@@ -230,31 +259,32 @@ func serveFile(out io.Writer, aesKey []byte, path string, size int64, rangeHeade
 	 */
 	var plaintext []byte = make([]byte, blockSize)
 	for {
-			//everytime we do this, the plaintext buffer gets the bytes read
-			bytesRead, err := file.Read(plaintext)
-			if err != nil && err != io.EOF {
-				panic(err)
-			} else if err == io.EOF || bytesRead == int(length) {
-				break
-			}
-			//now the idea is to use the AES-GCM library to encrypt this, and then send it
-			var sequenceNumber uint64 = 1
-
-			block, err := crypto.CreateAcmCipher(aesKey)
-			if err != nil {
-				panic(err)
-			}
-			nonce := crypto.GenerateNonce()
-			encryptedBlock, err := crypto.EncryptBlock(plaintext, block, nonce, sequenceNumber)
-			if err != nil {
-				panic(err)
-			}
-			ciphertext, err := crypto.PackageContents(sequenceNumber, nonce, encryptedBlock)
-			out.Write(ciphertext)
-
+		// everytime we do this, the plaintext buffer gets the bytes read
+		bytesRead, err := file.Read(plaintext)
+		if err != nil && err != io.EOF {
+			panic(err)
+		} else if err == io.EOF || bytesRead == int(length) /*is this second condition (the one after the or) really necessary?*/ {
+			break
 		}
 
-	_, _ = io.CopyBuffer(out, io.LimitReader(file, length), make([]byte, blockSize)) //para apagar quando tivermos a função de cima
+		// now the idea is to use the AES-GCM library to encrypt this, and then send it
+		var sequenceNumber uint64 = 1
+
+		block, err := crypto.CreateAcmCipher(aesKey)
+		if err != nil {
+			panic(err)
+		}
+		nonce := crypto.GenerateNonce()
+		encryptedBlock, err := crypto.EncryptBlock(plaintext, block, nonce, sequenceNumber)
+		if err != nil {
+			panic(err)
+		}
+		ciphertext, err := crypto.PackageContents(sequenceNumber, nonce, encryptedBlock)
+		out.Write(ciphertext)
+
+	}
+
+	_, _ = io.CopyBuffer(out, io.LimitReader(file, length), make([]byte, blockSize)) // para apagar quando tivermos a função de cima
 }
 
 func writeStatus(out io.Writer, code int, reason string, length int64, extra string) {
