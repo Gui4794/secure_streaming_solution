@@ -2,7 +2,7 @@ package main
 
 import (
 	"bufio"
-	"crypto/aes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -159,17 +159,29 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 	sendPublicKey(proxyPublicKey, origin)
 	reader := bufio.NewReader(origin)
 	streamPublicKey, err := receivePublicKey(reader)
+	if err != nil {
+		log.Printf("failed to receive server key: %v", err)
+		writeSimpleStatus(browser, 502, "Bad Gateway")
+		return
+	}
 	sharedSecret, err := establishSharedSecret(proxyPrivateKey, streamPublicKey)
 	if err != nil {
-		fmt.Println("something went wrong in computing the shared secret")
+		log.Printf("failed to compute shared secret: %v", err)
+		writeSimpleStatus(browser, 502, "Bad Gateway")
+		return
 	}
 	aesKey, err := crypto.DeriveAESKey(sharedSecret)
 	if err != nil {
-		fmt.Println("failed to derive AES key:", err)
+		log.Printf("failed to derive AES key: %v", err)
+		writeSimpleStatus(browser, 502, "Bad Gateway")
 		return
 	}
 
-	cipher, _ := crypto.CreateAcmCipher(aesKey)
+	block, err := crypto.CreateAcmCipher(aesKey)
+	if err != nil {
+		writeSimpleStatus(browser, 502, "Bad Gateway")
+		return
+	}
 
 	fmt.Println("AES key derived:", len(aesKey), "bytes")
 	request := fmt.Sprintf("GET /media/%s HTTP/1.1\r\nHost: %s\r\n",
@@ -187,7 +199,6 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		return
 	}
 
-	reader = bufio.NewReader(origin)
 	statusLine, err := readLine(reader)
 	if err != nil {
 		writeSimpleStatus(browser, 502, "Bad Gateway")
@@ -208,7 +219,8 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		reason = strings.TrimSpace(statusParts[2])
 	}
 
-	contentLength := int64(-1)
+	contentLength := int64(-1)   // size of encrypted data on the wire
+	plaintextLength := int64(-1) // size of decrypted video for the browser
 	var contentType, contentRange, acceptRanges string
 	for {
 		line, err := readLine(reader)
@@ -231,6 +243,12 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 				writeSimpleStatus(browser, 502, "Bad Gateway")
 				return
 			}
+		case "x-plaintext-length":
+			plaintextLength, err = strconv.ParseInt(value, 10, 64)
+			if err != nil || plaintextLength < 0 {
+				writeSimpleStatus(browser, 502, "Bad Gateway")
+				return
+			}
 		case "content-type":
 			contentType = value
 		case "content-range":
@@ -240,7 +258,16 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		}
 	}
 
-	// Forward only the headers relevant to playback and range requests.
+	// Do not send a success response unless the encrypted response metadata is valid.
+	if statusCode == 200 || statusCode == 206 {
+		blocks := (plaintextLength + blockSize - 1) / blockSize
+		if plaintextLength < 0 || contentLength != plaintextLength+blocks*40 {
+			writeSimpleStatus(browser, 502, "Bad Gateway")
+			return
+		}
+	}
+
+	// The browser receives normal video bytes, not the encrypted wire format.
 	fmt.Fprintf(browser, "HTTP/1.1 %d %s\r\n", statusCode, reason)
 	if contentType != "" {
 		fmt.Fprintf(browser, "Content-Type: %s\r\n", contentType)
@@ -251,40 +278,61 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 	if contentRange != "" {
 		fmt.Fprintf(browser, "Content-Range: %s\r\n", contentRange)
 	}
-	if contentLength >= 0 {
-		fmt.Fprintf(browser, "Content-Length: %d\r\n", contentLength)
+	if statusCode == 200 || statusCode == 206 {
+		fmt.Fprintf(browser, "Content-Length: %d\r\n", plaintextLength)
+	} else {
+		fmt.Fprint(browser, "Content-Length: 0\r\n")
 	}
 	io.WriteString(browser, "Connection: close\r\n\r\n")
 
-	if contentLength <= 0 {
+	if statusCode != 200 && statusCode != 206 {
 		return
 	}
-	//this is the part that receives the blocks from the streaming server
-	buf := make([]byte, blockSize)
-	remaining := contentLength
+
+	remaining := plaintextLength
+	var expectedSeq uint64 = 1
 	for remaining > 0 {
-		toRead := int64(len(buf))
-		if remaining < toRead {
-			toRead = remaining
+		chunkSize := int64(blockSize)
+		if remaining < chunkSize {
+			chunkSize = remaining
 		}
-		//FIXME this is probably wrong
-		n, err := reader.Read(buf[:int(toRead)])
-		sequenceNumber, nonce, ciphertext, err := crypto.UnpackContents(buf[:n])
-		decryptedBlock, err := crypto.DecryptBlock(ciphertext, block, nonce, sequenceNumber)
-		sequenceNumber, nonce, ciphertext, err = crypto.UnpackContents(decryptedBlock)
-		if n > 0 {
-			if blockDelay > 0 {
-				time.Sleep(blockDelay)
-			}
-			if _, writeErr := browser.Write(buf[:n]); writeErr != nil {
-				return
-			}
-			remaining -= int64(n)
-		}
-		if err != nil {
+		// The first 4 bytes delimit the full encrypted packet in the TCP stream.
+		var frameHeader [4]byte
+		if _, err := io.ReadFull(reader, frameHeader[:]); err != nil {
+			log.Printf("failed to read frame length: %v", err)
 			return
 		}
+		frameSize := int(binary.BigEndian.Uint32(frameHeader[:]))
+		expectedSize := int(chunkSize) + 8 + 12 + 16
+		if frameSize != expectedSize {
+			log.Printf("invalid encrypted frame size: %d (expected %d)", frameSize, expectedSize)
+			return
+		}
+		packet := make([]byte, frameSize)
+		if _, err := io.ReadFull(reader, packet); err != nil {
+			log.Printf("failed to read encrypted frame: %v", err)
+			return
+		}
+		seq, nonce, ciphertext, err := crypto.UnpackContents(packet)
+		if err != nil || seq != expectedSeq {
+			log.Printf("invalid packet or sequence: got %d expected %d: %v", seq, expectedSeq, err)
+			return
+		}
+		decryptedBlock, err := crypto.DecryptBlock(ciphertext, block, nonce, seq)
+		if err != nil || len(decryptedBlock) != int(chunkSize) {
+			log.Printf("block %d failed AES-GCM authentication or size check: %v", seq, err)
+			return
+		}
+		if blockDelay > 0 {
+			time.Sleep(blockDelay)
+		}
+		if _, err := browser.Write(decryptedBlock); err != nil {
+			return
+		}
+		remaining -= chunkSize
+		expectedSeq++
 	}
+
 }
 
 func writeSimpleStatus(out io.Writer, code int, reason string) {

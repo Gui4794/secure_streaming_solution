@@ -13,18 +13,17 @@ import (
  */
 func generateKeyPair() (*ecdh.PublicKey, *ecdh.PrivateKey) {
 	privateKey, err := ecdh.X25519().GenerateKey(rand.Reader)
-	if(err != nil) {
+	if err != nil {
 		fmt.Println("something went wrong while generating a private key")
 	}
 	publicKey := privateKey.PublicKey()
 	return publicKey, privateKey
 }
 
-
-//Given an array of bytes, turns it into a public key
+// Given an array of bytes, turns it into a public key
 func byteArrayToPublicKey(byteArray []byte) (*ecdh.PublicKey, error) {
 	receivedPublicKey, err := ecdh.X25519().NewPublicKey(byteArray)
-	if (err != nil) {
+	if err != nil {
 		fmt.Println("something went wrong when parsing the byte array")
 	}
 	return receivedPublicKey, nil
@@ -49,12 +48,12 @@ func receivePublicKey(reader io.Reader) (*ecdh.PublicKey, error) {
 	_, err := io.ReadFull(reader, receivedByteArray)
 	if err != nil {
 		fmt.Println(err.Error())
-		return nil, nil
+		return nil, err
 	}
 
 	receivedPublicKey, err := byteArrayToPublicKey(receivedByteArray)
 	if err != nil {
-		fmt.Println(err.Error())
+		return nil, err
 	}
 
 	return receivedPublicKey, nil

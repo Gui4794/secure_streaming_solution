@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
-	"secure_streaming_solution/crypto"
 )
 
 /**
@@ -14,7 +13,7 @@ import (
  */
 func generateKeyPair() (*ecdh.PublicKey, *ecdh.PrivateKey) {
 	privateKey, err := ecdh.X25519().GenerateKey(rand.Reader)
-	if(err != nil) {
+	if err != nil {
 		fmt.Println("something went wrong while generating a private key")
 	}
 	publicKey := privateKey.PublicKey()
@@ -29,10 +28,10 @@ func establishSharedSecret(ownPrivateKey *ecdh.PrivateKey, receivedPublicKey *ec
 	return ownPrivateKey.ECDH(receivedPublicKey)
 }
 
-//Given an array of bytes, turns it into a public key
+// Given an array of bytes, turns it into a public key
 func byteArrayToPublicKey(byteArray []byte) (*ecdh.PublicKey, error) {
 	receivedPublicKey, err := ecdh.X25519().NewPublicKey(byteArray)
-	if (err != nil) {
+	if err != nil {
 		fmt.Println("something went wrong when parsing the byte array")
 	}
 	return receivedPublicKey, nil
@@ -44,7 +43,7 @@ func byteArrayToPublicKey(byteArray []byte) (*ecdh.PublicKey, error) {
  * it will receive the byte array, and returns the public key, computed from the byte array
  */
 
-//NOTE: this used to output a byte array, and now outputs a *PublicKey instead
+// NOTE: this used to output a byte array, and now outputs a *PublicKey instead
 func receivePublicKey(reader io.Reader) (*ecdh.PublicKey, error) {
 	receivedByteArray := make([]byte, 32)
 
