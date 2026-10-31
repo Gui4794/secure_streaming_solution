@@ -43,9 +43,15 @@ const indexHTML = `<!doctype html>
 </body></html>`
 
 func main() {
+
 	configOutput, err := config.ParseConfigFile(config.ProxyServer)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Failed to read proxy config: %v", err)
+	}
+
+	// Validate the cryptographic configuration
+	if err := configOutput.Validate(); err != nil {
+		log.Fatalf("Invalid proxy crypto configuration: %v", err)
 	}
 
 	// TODO: remove these printlns once these variables are used

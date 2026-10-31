@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -26,9 +27,15 @@ import (
 const blockSize = 1024
 
 func main() {
+
 	configOutput, err := config.ParseConfigFile(config.StreamServer)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Failed to read server config: %v", err)
+	}
+
+	// Validate the cryptographic configuration
+	if err := configOutput.Validate(); err != nil {
+		log.Fatalf("Invalid server crypto configuration: %v", err)
 	}
 
 	// TODO: remove these printlns once these variables are used
@@ -105,10 +112,17 @@ func handle(conn net.Conn, root string) {
 	sendPublicKey(streamPublicKey, conn)
 	reader := bufio.NewReader(conn)
 	proxyPublicKey, err := receivePublicKey(reader)
+	if err != nil {
+		log.Printf("failed to receive proxy public key: %v", err)
+		return
+	}
+
 	sharedSecret, err := establishSharedSecret(streamPrivateKey, proxyPublicKey)
 	if err != nil {
 		fmt.Println("something went wrong in computing the shared secret")
+		return
 	}
+
 	aesKey, err := crypto.DeriveAESKey(sharedSecret)
 	if err != nil {
 		fmt.Println("failed to derive AES key:", err)
@@ -250,7 +264,23 @@ func serveFile(out io.Writer, aesKey []byte, path string, size int64, rangeHeade
 		return
 	}
 
-	writeHeaders(out, code, reason, length, "video/mp4", extra)
+	block, err := crypto.CreateAcmCipher(aesKey)
+	if err != nil {
+		log.Printf("Failed to create AES cipher: %v", err)
+		return
+	}
+
+	numberOfBlocks := (length + blockSize - 1) / blockSize
+
+	// Each encrypted block adds 40 bytes:
+	// 4 (length) + 8 (sequence) + 12 (nonce) + 16 (GCM tag)
+	encryptedLength := length + numberOfBlocks*40
+
+	// Tell the Proxy the original video size
+	extra += fmt.Sprintf("X-Plaintext-Length: %d\r\n", length)
+
+	writeHeaders(out, code, reason, encryptedLength, "video/mp4", extra)
+
 	// Use a 1024-byte buffer to send the file without buffering it entirely.
 	/*
 	 * from my understanding, io.CopyBuffer is doing a for loop (i checked its source code).
@@ -258,33 +288,57 @@ func serveFile(out io.Writer, aesKey []byte, path string, size int64, rangeHeade
 	 * encrypt it, and send it, though i am not sure if this would work
 	 */
 	var plaintext []byte = make([]byte, blockSize)
-	for {
+	remaining := length
+	var sequenceNumber uint64 = 1
+
+	for remaining > 0 {
+		toRead := blockSize
+		if remaining < int64(toRead) {
+			toRead = int(remaining)
+		}
+
 		// everytime we do this, the plaintext buffer gets the bytes read
-		bytesRead, err := file.Read(plaintext)
-		if err != nil && err != io.EOF {
-			panic(err)
-		} else if err == io.EOF || bytesRead == int(length) /*is this second condition (the one after the or) really necessary?*/ {
-			break
+		_, err := io.ReadFull(file, plaintext[:toRead])
+		if err != nil {
+			log.Printf("Failed to read video block: %v", err)
+			return
 		}
 
 		// now the idea is to use the AES-GCM library to encrypt this, and then send it
-		var sequenceNumber uint64 = 1
-
-		block, err := crypto.CreateAcmCipher(aesKey)
-		if err != nil {
-			panic(err)
-		}
 		nonce := crypto.GenerateNonce()
-		encryptedBlock, err := crypto.EncryptBlock(plaintext, block, nonce, sequenceNumber)
+
+		encryptedBlock, err := crypto.EncryptBlock(
+			plaintext[:toRead], block, nonce, sequenceNumber,
+		)
 		if err != nil {
-			panic(err)
+			log.Printf("Encryption failed: %v", err)
+			return
 		}
-		ciphertext, err := crypto.PackageContents(sequenceNumber, nonce, encryptedBlock)
-		out.Write(ciphertext)
 
+		ciphertext, err := crypto.PackageContents(
+			sequenceNumber, nonce, encryptedBlock,
+		)
+		if err != nil {
+			log.Printf("Packaging failed: %v", err)
+			return
+		}
+
+		var frameLength [4]byte
+		binary.BigEndian.PutUint32(frameLength[:], uint32(len(ciphertext)))
+
+		if _, err := out.Write(frameLength[:]); err != nil {
+			log.Printf("Failed to send frame length: %v", err)
+			return
+		}
+
+		if _, err := out.Write(ciphertext); err != nil {
+			log.Printf("Failed to send encrypted block: %v", err)
+			return
+		}
+
+		remaining -= int64(toRead)
+		sequenceNumber++
 	}
-
-	_, _ = io.CopyBuffer(out, io.LimitReader(file, length), make([]byte, blockSize)) // para apagar quando tivermos a função de cima
 }
 
 func writeStatus(out io.Writer, code int, reason string, length int64, extra string) {

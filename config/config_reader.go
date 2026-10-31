@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/xml"
+	"fmt"
 	"os"
 	"strings"
 )
@@ -59,4 +60,27 @@ func ParseConfigFile(serverName string) (ConfigOutput, error) {
 		panic(err)
 	}
 	return configOutput, nil
+}
+
+//for now : Proxy e o Server só aceitam a configuração AES-256-GCM que implementamos
+
+func (c ConfigOutput) Validate() error {
+	if c.CipherAlgorithm != "AES" || c.CipherMode != "GCM" {
+		return fmt.Errorf("unsupported cipher suite: %s/%s",
+			c.CipherAlgorithm, c.CipherMode)
+	}
+
+	if c.IVSize != 96 {
+		return fmt.Errorf("invalid IV size: %d", c.IVSize)
+	}
+
+	if c.SymKeySize != 256 {
+		return fmt.Errorf("invalid key size: %d", c.SymKeySize)
+	}
+
+	if c.Padding != "NULL" || c.MacAlgorithm != "NULL" {
+		return fmt.Errorf("invalid AES-GCM configuration")
+	}
+
+	return nil
 }
