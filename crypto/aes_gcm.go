@@ -50,26 +50,27 @@ func EncryptBlock(plaintext []byte, block cipher.Block, nonce []byte, seq uint64
 	binary.BigEndian.PutUint64(aad, seq)
 
 	//encrypt the plaintext and sequence number
-	ciphertext := aesgcm.Seal(nil, nonce, plaintext, aad)
+	ciphertextPlusMac := aesgcm.Seal(nil, nonce, plaintext, aad)
 
-	return ciphertext, nil
+	return ciphertextPlusMac, nil
 }
 
 /*
 Given a nonce and a block, packages both
 into a block, ready to be sent
+block structure: sequenceNumber + nonce + (ciphertext plus mac)
 */
-func PackageContents(seq uint64, nonce []byte, ciphertext []byte) ([]byte, error) {
+func PackageContents(seq uint64, nonce []byte, ciphertextPlusMac []byte) ([]byte, error) {
 	if len(nonce) != 12 {
 		return nil, fmt.Errorf("invalid nonce size")
 	}
 
-	packet := make([]byte, 8+len(nonce)+len(ciphertext))
+	packet := make([]byte, 8+len(nonce)+len(ciphertextPlusMac))
 
 	binary.BigEndian.PutUint64(packet[:8], seq)
 
 	copy(packet[8:20], nonce)
-	copy(packet[20:], ciphertext)
+	copy(packet[20:], ciphertextPlusMac)
 
 	return packet, nil
 }
@@ -79,7 +80,7 @@ func PackageContents(seq uint64, nonce []byte, ciphertext []byte) ([]byte, error
  * verifies the authentication tag and the sequence number
  * returns the original plaintext if authentication succeeds.
  */
-func DecryptBlock(ciphertext []byte, block cipher.Block, nonce []byte, seq uint64) ([]byte, error) {
+func DecryptBlock(ciphertextPlusMac []byte, block cipher.Block, nonce []byte, seq uint64) ([]byte, error) {
 	aesgcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, err
@@ -94,7 +95,7 @@ func DecryptBlock(ciphertext []byte, block cipher.Block, nonce []byte, seq uint6
 	binary.BigEndian.PutUint64(aad, seq)
 
 	// verify authenticity and decrypt the ciphertext
-	return aesgcm.Open(nil, nonce, ciphertext, aad)
+	return aesgcm.Open(nil, nonce, ciphertextPlusMac, aad)
 }
 
 //FALTA IMPEDIR AUTENTICIDADE E REPLAYYY
@@ -114,9 +115,9 @@ func UnpackContents(packet []byte) (uint64, []byte, []byte, error) {
 	nonce := packet[8:20]
 
 	//extract the encrypted block and authentication tag
-	ciphertext := packet[20:]
+	ciphertextPlusMac := packet[20:]
 
-	return seq, nonce, ciphertext, nil
+	return seq, nonce, ciphertextPlusMac, nil
 }
 
 /*

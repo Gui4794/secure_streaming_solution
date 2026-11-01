@@ -6,7 +6,6 @@ import (
 	"io"
 	"log"
 	"net"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -24,7 +23,10 @@ import (
 * a version of diffie-hellman with authentication is to be implemented
  */
 
-const blockSize = 1024
+const
+(
+	blockSize = 1024
+)
 
 func main() {
 	configOutput, err := config.ParseConfigFile(config.StreamServer)
@@ -95,18 +97,17 @@ func main() {
 			continue
 		}
 		// Equivalent to Java's thread pool: one goroutine per connection.
-		go handle(conn, root)
+		go handle(conn, root, configOutput)
 	}
 }
 
-func handle(conn net.Conn, root string) {
+func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 	defer conn.Close()
 
 	/*
-		the server could generate its private key
-		as soon as the connection with the proxy is accepted
+	* the server generates its private key
+    * as soon as the connection with the proxy is accepted
 	*/
-	/*streamPublicKey*/
 	streamPublicKey, streamPrivateKey := generateKeyPair()
 	sendPublicKey(streamPublicKey, conn)
 	reader := bufio.NewReader(conn)
@@ -129,244 +130,216 @@ func handle(conn net.Conn, root string) {
 	}
 
 	fmt.Println("AES key derived:", len(aesKey), "bytes")
-	requestLine, err := readLine(reader)
+
+
+	//the stream server receives the handshakes and parses them
+
+	// Receive Message Type 1
+	type1Message, err := protocol.ReadMessage(reader)
 	if err != nil {
-		writeStatus(conn, 400, "Bad Request", 0, "")
+		log.Printf("failed to receive type1: %v", err)
 		return
-	}
-	requestParts := strings.Fields(requestLine)
-	if len(requestParts) != 3 || requestParts[0] != "GET" || !strings.HasPrefix(requestParts[2], "HTTP/1.") {
-		writeStatus(conn, 400, "Bad Request", 0, "")
-		return
-	}
-	path := requestParts[1]
-
-	var rangeHeader string
-	for {
-		line, err := readLine(reader)
-		if err != nil {
-			return
-		}
-		if line == "" {
-			break
-		}
-		if colon := strings.IndexByte(line, ':'); colon > 0 && strings.EqualFold(line[:colon], "Range") {
-			rangeHeader = strings.TrimSpace(line[colon+1:])
-		}
 	}
 
-	if !strings.HasPrefix(path, "/media/") {
-		writeStatus(conn, 404, "Not Found", 0, "")
+	if type1Message.Type != protocol.TypeProposal {
+		log.Printf("expected Type 1, got Type %d", type1Message.Type)
 		return
 	}
-	// Decode percent-encoded filenames (e.g. "my%20movie.mp4"). Reject
-	// directory traversal, including encoded traversal and symlink escapes.
-	name, err := url.PathUnescape(strings.TrimPrefix(path, "/media/"))
-	if err != nil || name == "" || strings.ContainsAny(name, "\x00\r\n") {
-		writeStatus(conn, 400, "Bad Request", 0, "")
+
+	type1, err := protocol.ParseHandshakeType1(type1Message)
+	if err != nil {
+		log.Printf("invalid type1 payload: %v", err)
 		return
 	}
-	filePath := filepath.Join(root, filepath.FromSlash(name))
+
+	type2Message, challenge, err := protocol.CreateHandshakeType2(
+		type1,
+		serverConfig,
+		aesKey,
+	)
+	if err != nil {
+		log.Printf("failed to create type2: %v", err)
+		return
+	}
+
+
+	//Send type 2 to proxy
+	if err := protocol.WriteMessage(
+		conn, type2Message.Type, type2Message.Payload,
+	); err != nil {
+		log.Printf("failed to send type2: %v", err)
+		return
+	}
+
+	seqY := type1.SequenceNumber + 1
+
+	//Type3 - receber e validar
+	type3Message, err := protocol.ReadMessage(reader)
+	if err != nil {
+		log.Printf("failed to receive type3: %v", err)
+		return
+	}
+
+	if type3Message.Type != protocol.TypeRequest {
+		log.Printf("expected Type 3, got Type %d", type3Message.Type)
+		return
+	}
+
+
+	type3, err := protocol.ParseHandshakeType3(
+    type3Message, seqY, challenge, aesKey,
+	)
+	if err != nil {
+		log.Printf("invalid type 3: %v", err)
+		return
+	}
+
+	finalPath, err := resolveMediaPath(root, type3.Media)
+	if err != nil {
+		log.Printf("invalid or unavailable media: %v", err)
+		return
+	}
+
+	firstSeqB := type3.SequenceNumber + 1
+
+	serveFile(conn, aesKey, finalPath, firstSeqB)
+	}
+
+
+
+
+func resolveMediaPath(root, name string) (string, error) {
+	if name == "" || strings.ContainsAny(name, "\x00\r\n") {
+		return "", fmt.Errorf("invalid media filename")
+	}
+
+	name = filepath.FromSlash(name)
+
+	if filepath.IsAbs(name) {
+		return "", fmt.Errorf("absolute media paths are not allowed")
+	}
+
+	filePath := filepath.Join(root, name)
+
 	rel, err := filepath.Rel(root, filePath)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
-		writeStatus(conn, 404, "Not Found", 0, "")
-		return
+	if err != nil ||
+		rel == ".." ||
+		strings.HasPrefix(rel, ".."+string(os.PathSeparator)) ||
+		filepath.IsAbs(rel) {
+		return "", fmt.Errorf("media path escapes media directory")
 	}
+
 	finalPath, err := filepath.EvalSymlinks(filePath)
 	if err != nil {
-		writeStatus(conn, 404, "Not Found", 0, "")
-		return
+		return "", fmt.Errorf("cannot resolve media path: %w", err)
 	}
+
 	rel, err = filepath.Rel(root, finalPath)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) || filepath.IsAbs(rel) {
-		writeStatus(conn, 404, "Not Found", 0, "")
-		return
+	if err != nil ||
+		rel == ".." ||
+		strings.HasPrefix(rel, ".."+string(os.PathSeparator)) ||
+		filepath.IsAbs(rel) {
+		return "", fmt.Errorf("media symlink escapes media directory")
 	}
+
 	info, err := os.Stat(finalPath)
-	if err != nil || !info.Mode().IsRegular() {
-		writeStatus(conn, 404, "Not Found", 0, "")
-		return
+	if err != nil {
+		return "", fmt.Errorf("cannot access media: %w", err)
 	}
-	serveFile(conn, aesKey, finalPath, info.Size(), rangeHeader)
+
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("media is not a regular file")
+	}
+
+	return finalPath, nil
 }
+
 
 // parseRange accepts a single HTTP bytes range (start-end, start-, or -suffix).
 // Like the Java source, malformed ranges fall back to the entire file.
 // Unsatisfiable ranges produce a 416 response.
-func parseRange(header string, size int64) (start, end int64, partial, unsatisfiable bool) {
-	start, end = 0, size-1
-	if !strings.HasPrefix(header, "bytes=") || strings.Contains(header, ",") {
-		return
-	}
-	fields := strings.Split(strings.TrimSpace(strings.TrimPrefix(header, "bytes=")), "-")
-	if len(fields) != 2 || (fields[0] == "" && fields[1] == "") {
-		return
-	}
-	var s, e int64
-	var err error
-	if fields[0] == "" {
-		var suffix int64
-		suffix, err = strconv.ParseInt(fields[1], 10, 64)
-		if err != nil || suffix < 0 {
-			return
-		}
-		s = size - suffix
-		if s < 0 {
-			s = 0
-		}
-		e = size - 1
-	} else {
-		s, err = strconv.ParseInt(fields[0], 10, 64)
-		if err != nil || s < 0 {
-			return
-		}
-		e = size - 1
-		if fields[1] != "" {
-			e, err = strconv.ParseInt(fields[1], 10, 64)
-			if err != nil || e < 0 {
-				return
-			}
-			if e >= size {
-				e = size - 1
-			}
-		}
-	}
-	if s > e || s >= size {
-		return 0, 0, false, true
-	}
-	return s, e, true, false
-}
 
-// i think we might need to change this
-func serveFile(out io.Writer, aesKey []byte, path string, size int64, rangeHeader string) {
-	start, end, partial, unsatisfiable := parseRange(rangeHeader, size)
-	if unsatisfiable {
-		writeStatus(out, 416, "Range Not Satisfiable", 0,
-			fmt.Sprintf("Content-Range: bytes */%d\r\n", size))
-		return
-	}
-	length := size
-	code, reason := 200, "OK"
-	extra := "Accept-Ranges: bytes\r\n"
-	if partial {
-		length = end - start + 1
-		code, reason = 206, "Partial Content"
-		extra += fmt.Sprintf("Content-Range: bytes %d-%d/%d\r\n", start, end, size)
-	}
+// i think we might need to change this, on itttt ass beatriz
 
+func serveFile(out io.Writer, aesKey []byte, path string, firstSeqB uint64) {
 	file, err := os.Open(path)
 	if err != nil {
-		writeStatus(out, 404, "Not Found", 0, "")
+		log.Printf("Failed to open video: %v", err)
 		return
 	}
 	defer file.Close()
-	if _, err := file.Seek(start, io.SeekStart); err != nil {
-		return
-	}
 
-	/*block*/
-	_, err = crypto.CreateAcmCipher(aesKey)
+	plaintext := make([]byte, blockSize)
+	sequenceNumber := firstSeqB
+
+	for {
+		// Read the next video block
+		bytesRead, readErr := file.Read(plaintext)
+
+		if bytesRead > 0 {
+			// Create encrypted Type 4 payload
+			type4Msg, err := protocol.CreateType4Message(
+				sequenceNumber,
+				plaintext[:bytesRead],
+				aesKey,
+			)
+			if err != nil {
+				log.Printf("Failed to create Type 4: %v", err)
+				return
+		}
+
+		if err := protocol.WriteMessage(
+			out,
+			protocol.TypeMediaBlock,
+			type4Msg.Payload,
+		); err != nil {
+			log.Printf("Failed to send Type 4: %v", err)
+			return
+		}
+
+				sequenceNumber++
+			}
+
+	if readErr == io.EOF {
+				break
+			}
+
+			if readErr != nil {
+				log.Printf("Failed to read video: %v", readErr)
+				return
+			}
+} //fim do ciclo 4
+ //type 5
+
+ type5Message, err := protocol.CreateType5Message(sequenceNumber, aesKey)
 	if err != nil {
-		log.Printf("Failed to create AES cipher: %v", err)
+		log.Printf("Failed to create Type 5: %v", err)
 		return
 	}
 
-	numberOfBlocks := (length + blockSize - 1) / blockSize
-
-	// Each encrypted block adds 40 bytes:
-	// 4 (length) + 8 (sequence) + 12 (nonce) + 16 (GCM tag)
-	encryptedLength := length + numberOfBlocks*40
-
-	// Tell the Proxy the original video size
-	extra += fmt.Sprintf("X-Plaintext-Length: %d\r\n", length)
-
-	writeHeaders(out, code, reason, encryptedLength, "video/mp4", extra)
-
-	// Use a 1024-byte buffer to send the file without buffering it entirely.
-	/*
-	 * from my understanding, io.CopyBuffer is doing a for loop (i checked its source code).
-	 * a possible implementation would be to make this process more manual: we craft the block,
-	 * encrypt it, and send it, though i am not sure if this would work
-	 */
-	var plaintext []byte = make([]byte, blockSize)
-	remaining := length
-	var sequenceNumber uint64 = 1
-
-	for remaining > 0 {
-		toRead := blockSize
-		if remaining < int64(toRead) {
-			toRead = int(remaining)
-		}
-
-		// everytime we do this, the plaintext buffer gets the bytes read
-		_, err := io.ReadFull(file, plaintext[:toRead])
-		if err != nil {
-			log.Printf("Failed to read video block: %v", err)
-			return
-		}
-		type4Message, err := protocol.CreateType4Message(sequenceNumber, plaintext, aesKey)
-		if err != nil {
-			log.Printf("something failed while creating a type 4 message")
-			return
-		}
-		// now the idea is to use the AES-GCM library to encrypt this, and then send it
-		/*
-			 * i think the above line already encrypts so we just send it
-			 * just commenting this as an attempt to replace it with the type4 function
-			nonce := crypto.GenerateNonce()
-
-			encryptedBlock, err := crypto.EncryptBlock(
-				plaintext[:toRead], block, nonce, sequenceNumber,
-			)
-			if err != nil {
-				log.Printf("Encryption failed: %v", err)
-				return
-			}
-
-			ciphertext, err := crypto.PackageContents(
-				sequenceNumber, nonce, encryptedBlock,
-			)
-			if err != nil {
-				log.Printf("Packaging failed: %v", err)
-				return
-			}
-
-			var frameLength [4]byte
-			binary.BigEndian.PutUint32(frameLength[:], uint32(len(ciphertext)))
-
-			if _, err := out.Write(frameLength[:]); err != nil {
-				log.Printf("Failed to send frame length: %v", err)
-				return
-			}
-		*/
-
-		if _, err := out.Write( /*ciphertext*/ type4Message); err != nil {
-			log.Printf("Failed to send encrypted block (aka type 4 message): %v", err)
-			return
-		}
-
-		remaining -= int64(toRead)
-		sequenceNumber++
+	if err := protocol.WriteMessage(
+		out,
+		type5Message.Type,
+		type5Message.Payload,
+	); err != nil {
+		log.Printf("Failed to send Type 5: %v", err)
+		return
 	}
 }
 
-func writeStatus(out io.Writer, code int, reason string, length int64, extra string) {
-	writeHeaders(out, code, reason, length, "", extra)
-}
 
-// cria e envia os cabeçalhos HTTP do Stream Server para o Proxy
-func writeHeaders(out io.Writer, code int, reason string, length int64, contentType, extra string) {
-	fmt.Fprintf(out, "HTTP/1.1 %d %s\r\n", code, reason)
 
-	if contentType != "" {
-		fmt.Fprintf(out, "Content-Type: %s\r\n", contentType) // content-type ex: video/mp4
-	}
+/*
+ * Helper function that reads contents from a socket (conn)
+ * and tries to parse it into a  Type 1 Message
+ * note that this assumes that the configs
+ * are correct and validated
+ */
 
-	fmt.Fprintf(out, "Content-Length: %d\r\nConnection: close\r\n", length)
-
-	if extra != "" {
-		io.WriteString(out, extra)
-	}
-
-	io.WriteString(out, "\r\n")
-}
+/*
+ * Helper that checks if a given message is valid,
+ * according to the config file.
+ * note that this assumes that the configs
+ * are correct and validated
+ * could this be moved to a different file? maybe
+ */

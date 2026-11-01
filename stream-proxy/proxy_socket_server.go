@@ -2,25 +2,25 @@ package main
 
 import (
 	"bufio"
-	"encoding/binary"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+	"io"
 
 	"secure_streaming_solution/config"
 	"secure_streaming_solution/crypto"
+	"secure_streaming_solution/protocol"
+
+	//"golang.org/x/text/message"
 )
 
 /*
 * in the context of secure streaming, the proxy is
-* going to decrypt the media blocks. for now, keys and nonces
-* are configured manually
-* a version of diffie-hellman with authentication is to be implemented
+* going to decrypt the media blocks
  */
 
 const blockSize = 1024
@@ -44,37 +44,15 @@ const indexHTML = `<!doctype html>
 
 func main() {
 
-	configOutput, err := config.ParseConfigFile(config.ProxyServer)
+	proxyConfigOutput, err := config.ParseConfigFile(config.ProxyServer)
 	if err != nil {
 		log.Fatalf("Failed to read proxy config: %v", err)
 	}
 
 	// Validate the cryptographic configuration
-	if err := configOutput.Validate(); err != nil {
+	if err := proxyConfigOutput.Validate(); err != nil {
 		log.Fatalf("Invalid proxy crypto configuration: %v", err)
 	}
-
-	// TODO: remove these printlns once these variables are used
-	cipherAlgorithm := configOutput.CipherAlgorithm
-	fmt.Println(cipherAlgorithm)
-	cipherMode := configOutput.CipherMode
-	fmt.Println(cipherMode)
-	iv := configOutput.IV
-	fmt.Println(iv)
-	ivSize := configOutput.IVSize
-	fmt.Println(ivSize)
-	padding := configOutput.Padding
-	fmt.Println(padding)
-	macAlgorithm := configOutput.MacAlgorithm
-	fmt.Println(macAlgorithm)
-	symKey := configOutput.SymKey
-	fmt.Println(symKey)
-	symKeySize := configOutput.SymKeySize
-	fmt.Println(symKeySize)
-	macKey := configOutput.MacKey
-	fmt.Println(macKey)
-	macKeySize := configOutput.MacKeySize
-	fmt.Println(macKeySize)
 
 	port := 8080
 	originHost := "localhost"
@@ -113,7 +91,7 @@ func main() {
 			log.Printf("Accept failed: %v", err)
 			continue
 		}
-		go handle(browser, originHost, originPort, time.Duration(delayMs)*time.Millisecond)
+		go handle(browser, originHost, originPort, time.Duration(delayMs)*time.Millisecond, proxyConfigOutput)
 	}
 }
 
@@ -125,7 +103,7 @@ func mustPort(value string) int {
 	return port
 }
 
-func handle(browser net.Conn, originHost string, originPort int, blockDelay time.Duration) {
+func handle(browser net.Conn, originHost string, originPort int, blockDelay time.Duration, config config.ConfigOutput) {
 	defer browser.Close()
 
 	reader := bufio.NewReader(browser)
@@ -141,7 +119,6 @@ func handle(browser net.Conn, originHost string, originPort int, blockDelay time
 	}
 	path := parts[1]
 
-	var rangeHeader string
 	for {
 		line, err := readLine(reader)
 		if err != nil {
@@ -149,10 +126,6 @@ func handle(browser net.Conn, originHost string, originPort int, blockDelay time
 		}
 		if line == "" {
 			break
-		}
-		if idx := strings.IndexByte(line, ':'); idx > 0 &&
-			strings.EqualFold(line[:idx], "Range") {
-			rangeHeader = strings.TrimSpace(line[idx+1:])
 		}
 	}
 
@@ -171,7 +144,7 @@ func handle(browser net.Conn, originHost string, originPort int, blockDelay time
 		writeSimpleStatus(browser, 400, "Bad Request")
 		return
 	}
-	relayFromOrigin(browser, originHost, originPort, name, rangeHeader, blockDelay)
+	relayFromOrigin(browser, originHost, originPort, name, blockDelay, config)
 }
 
 func servePage(out io.Writer) {
@@ -179,10 +152,9 @@ func servePage(out io.Writer) {
 	fmt.Fprintf(out, "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", len(page))
 	_, _ = out.Write(page)
 }
-
 // this function is what the proxy server does when talking to the stream server
 func relayFromOrigin(browser io.Writer, originHost string, originPort int,
-	name string, rangeHeader string, blockDelay time.Duration,
+	name string, blockDelay time.Duration, proxyConfig config.ConfigOutput,
 ) {
 	origin, err := net.Dial("tcp", net.JoinHostPort(originHost, strconv.Itoa(originPort)))
 	if err != nil {
@@ -220,154 +192,75 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 	}
 
 	fmt.Println("AES key derived:", len(aesKey), "bytes")
-	request := fmt.Sprintf("GET /media/%s HTTP/1.1\r\nHost: %s\r\n",
-		name, net.JoinHostPort(originHost, strconv.Itoa(originPort)))
-	if rangeHeader != "" {
-		if strings.ContainsAny(rangeHeader, "\r\n") {
-			writeSimpleStatus(browser, 400, "Bad Request")
-			return
-		}
-		request += "Range: " + rangeHeader + "\r\n"
-	}
-	request += "Connection: close\r\n\r\n"
-	if _, err := io.WriteString(origin, request); err != nil {
-		writeSimpleStatus(browser, 502, "Bad Gateway")
-		return
-	}
-
-	statusLine, err := readLine(reader)
+	//sends type 1 message to the stream server
+	type1Msg, seqX, err := protocol.CreateHandshakeType1(proxyConfig)
 	if err != nil {
-		writeSimpleStatus(browser, 502, "Bad Gateway")
+		log.Println("error in sending type 1 message (proxy)")
 		return
 	}
-	statusParts := strings.SplitN(statusLine, " ", 3)
-	if len(statusParts) < 2 {
-		writeSimpleStatus(browser, 502, "Bad Gateway")
+	protocol.WriteMessage(origin, type1Msg.Type, type1Msg.Payload)
+	if err != nil {
+		log.Println(err.Error())
 		return
-	}
-	statusCode, err := strconv.Atoi(statusParts[1])
-	if err != nil || statusCode < 100 || statusCode > 599 {
-		writeSimpleStatus(browser, 502, "Bad Gateway")
-		return
-	}
-	reason := ""
-	if len(statusParts) > 2 {
-		reason = strings.TrimSpace(statusParts[2])
 	}
 
-	contentLength := int64(-1)   // size of encrypted data on the wire
-	plaintextLength := int64(-1) // size of decrypted video for the browser
-	var contentType, contentRange, acceptRanges string
+	//reads the type 2 message
+	type2Msg, err := protocol.ReadMessage(origin)
+	if err != nil {
+		log.Println("error in reading type 2 message (proxy)")
+	}
+
+	type2, err := protocol.ParseHandshakeType2(type2Msg, seqX, proxyConfig, aesKey)
+	if err != nil {
+		log.Println("error in converting type2 message (proxy")
+		return
+	}
+
+	//sends the type 3 message
+	type3Msg, err := protocol.CreateHandshakeType3(type2, name, aesKey)
+	if err != nil {
+		log.Println("error in creating type 3 message (proxy)")
+		return
+	}
+	err = protocol.WriteMessage(origin, type3Msg.Type, type3Msg.Payload)
+	if err != nil {
+		log.Println("error while writing type 3 message (proxy)")
+	}
+
+	//keeps sending the content until it reaches eof (type 5)
+	fmt.Fprintf(browser, "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\n\r\n")
 	for {
-		line, err := readLine(reader)
+		type4Or5Msg, err := protocol.ReadMessage(origin)
 		if err != nil {
+			log.Println("error in reading message (proxy)")
 			return
 		}
-		if line == "" {
+		if (type4Or5Msg.Type != protocol.TypeMediaBlock && type4Or5Msg.Type != protocol.TypeEndBlock) {
+			//type 255 handling could go here
+			log.Println("received message is neither type 4 or 5")
+		}
+		if type4Or5Msg.Type == protocol.TypeEndBlock {
 			break
 		}
-		idx := strings.IndexByte(line, ':')
-		if idx <= 0 {
-			continue
-		}
-		key := strings.ToLower(strings.TrimSpace(line[:idx]))
-		value := strings.TrimSpace(line[idx+1:])
-		switch key {
-		case "content-length":
-			contentLength, err = strconv.ParseInt(value, 10, 64)
-			if err != nil || contentLength < 0 {
-				writeSimpleStatus(browser, 502, "Bad Gateway")
-				return
-			}
-		case "x-plaintext-length":
-			plaintextLength, err = strconv.ParseInt(value, 10, 64)
-			if err != nil || plaintextLength < 0 {
-				writeSimpleStatus(browser, 502, "Bad Gateway")
-				return
-			}
-		case "content-type":
-			contentType = value
-		case "content-range":
-			contentRange = value
-		case "accept-ranges":
-			acceptRanges = value
-		}
-	}
-
-	// Do not send a success response unless the encrypted response metadata is valid.
-	if statusCode == 200 || statusCode == 206 {
-		blocks := (plaintextLength + blockSize - 1) / blockSize
-		if plaintextLength < 0 || contentLength != plaintextLength+blocks*40 {
-			writeSimpleStatus(browser, 502, "Bad Gateway")
+		seqNumber, nonce, cipherTextPlusMac, err := crypto.UnpackContents(type4Or5Msg.Payload)
+		if err != nil {
+			log.Println("error while unpacking the received block (proxy)")
 			return
 		}
-	}
-
-	// The browser receives normal video bytes, not the encrypted wire format.
-	fmt.Fprintf(browser, "HTTP/1.1 %d %s\r\n", statusCode, reason)
-	if contentType != "" {
-		fmt.Fprintf(browser, "Content-Type: %s\r\n", contentType)
-	}
-	if acceptRanges != "" {
-		fmt.Fprintf(browser, "Accept-Ranges: %s\r\n", acceptRanges)
-	}
-	if contentRange != "" {
-		fmt.Fprintf(browser, "Content-Range: %s\r\n", contentRange)
-	}
-	if statusCode == 200 || statusCode == 206 {
-		fmt.Fprintf(browser, "Content-Length: %d\r\n", plaintextLength)
-	} else {
-		fmt.Fprint(browser, "Content-Length: 0\r\n")
-	}
-	io.WriteString(browser, "Connection: close\r\n\r\n")
-
-	if statusCode != 200 && statusCode != 206 {
-		return
-	}
-
-	remaining := plaintextLength
-	var expectedSeq uint64 = 1
-	for remaining > 0 {
-		chunkSize := int64(blockSize)
-		if remaining < chunkSize {
-			chunkSize = remaining
+		decryptedContents, err := crypto.DecryptBlock(cipherTextPlusMac, block, nonce, seqNumber)
+		if err != nil {
+			log.Println("error while decrypting the received block (proxy)")
 		}
-		// The first 4 bytes delimit the full encrypted packet in the TCP stream.
-		var frameHeader [4]byte
-		if _, err := io.ReadFull(reader, frameHeader[:]); err != nil {
-			log.Printf("failed to read frame length: %v", err)
+		_, err = browser.Write(decryptedContents)
+		if err != nil {
+			log.Println("error while sending to browser (proxy)")
 			return
 		}
-		frameSize := int(binary.BigEndian.Uint32(frameHeader[:]))
-		expectedSize := int(chunkSize) + 8 + 12 + 16
-		if frameSize != expectedSize {
-			log.Printf("invalid encrypted frame size: %d (expected %d)", frameSize, expectedSize)
-			return
-		}
-		packet := make([]byte, frameSize)
-		if _, err := io.ReadFull(reader, packet); err != nil {
-			log.Printf("failed to read encrypted frame: %v", err)
-			return
-		}
-		seq, nonce, ciphertext, err := crypto.UnpackContents(packet)
-		if err != nil || seq != expectedSeq {
-			log.Printf("invalid packet or sequence: got %d expected %d: %v", seq, expectedSeq, err)
-			return
-		}
-		decryptedBlock, err := crypto.DecryptBlock(ciphertext, block, nonce, seq)
-		if err != nil || len(decryptedBlock) != int(chunkSize) {
-			log.Printf("block %d failed AES-GCM authentication or size check: %v", seq, err)
-			return
-		}
-		if blockDelay > 0 {
+		if (blockDelay > 0) {
 			time.Sleep(blockDelay)
 		}
-		if _, err := browser.Write(decryptedBlock); err != nil {
-			return
-		}
-		remaining -= chunkSize
-		expectedSeq++
 	}
+
 }
 
 func writeSimpleStatus(out io.Writer, code int, reason string) {

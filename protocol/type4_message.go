@@ -1,18 +1,16 @@
 package protocol
 
 import (
+	"errors"
+	"fmt"
+	"log"
 	"secure_streaming_solution/crypto"
+
+	//"golang.org/x/text/message"
 )
 
-/* i don't think we need this anymore
-// Represents the payload of a Type 4 Message
-type Type4Message struct {
-	SequenceNumber uint64
- 	EncryptedBlock []byte
-}
-*/
-
 /*
+ * Meant for the Stream Server:
  * Receives a Type 3 Handshake and defines the parameters
  * (the sequence number and media, at least for now)
  */
@@ -27,6 +25,7 @@ func ParametersFromType3(msg Message, seqY uint64, challenge [32]byte, aesKey []
 }
 
 /*
+ * Meant for the Stream Server:
  * Based on the received parameters from the initial handshake,
  * creates a Type 4 Message, ready to be sent.
  * sequenceNumber is the current sequence number that the
@@ -34,28 +33,66 @@ func ParametersFromType3(msg Message, seqY uint64, challenge [32]byte, aesKey []
  * readContents is what is in the buffer that the os read in serveFile()
  * (from ../stream-server/stream_server.go)
  */
-func CreateType4Message(seqNumber uint64, readContents []byte, aesKey []byte) ([]byte, error) {
-	blockToEncrypt, err := crypto.CreateAcmCipher(aesKey)
-	if err != nil {
-		return []byte{}, err
+
+func CreateType4Message(seqNumber uint64, readContents []byte, aesKey []byte) (Message, error) {
+	if len(aesKey) != 32 {
+		return Message{}, fmt.Errorf("invalid AES key")
 	}
+
+	block, err := crypto.CreateAcmCipher(aesKey)
+	if err != nil {
+		return Message{}, err
+	}
+
 	nonce := crypto.GenerateNonce()
-	ciphertext, err := crypto.EncryptBlock(readContents, blockToEncrypt, nonce, seqNumber)
+
+	ciphertextPlusMac, err := crypto.EncryptBlock(
+		readContents, block, nonce, seqNumber,
+	)
 	if err != nil {
-		return []byte{}, err
+		return Message{}, err
 	}
-	encryptedBlock, err := crypto.PackageContents(seqNumber, nonce, ciphertext)
+
+	payload, err := crypto.PackageContents(seqNumber, nonce, ciphertextPlusMac)
 	if err != nil {
-		return []byte{}, err
+		return Message{}, err
 	}
-	return encryptedBlock, nil
+
+	return Message{
+		Type: TypeMediaBlock,
+		Payload: payload,
+	}, nil
 }
 
-/*
-* Meant for the proxy:
-* parses a Type4 Message
- */
-func parseType4Message() {}
+
+//Meant for the Proxy Server: parses a Type4 Message
+func ParseType4Message(type4Message []byte, expectedSeqNumber uint64, aesKey []byte) ([]byte, error) {
+	seqNumber, nonce, ciphertextPlusMac, err := crypto.UnpackContents(type4Message)
+
+	if len(aesKey) != 32 {
+    return nil, errors.New("invalid AES key")
+	}
+
+	if err != nil {
+		log.Println("error unpacking a type4 message")
+		return []byte{}, err
+	}
+	if seqNumber != expectedSeqNumber {
+			log.Println("sequence number in the type4 message is not the expected sequence number")
+			return []byte{}, errors.New("sequence number in the type4 message is not the expected sequence number")
+	}
+	block, err := crypto.CreateAcmCipher(aesKey)
+	if err != nil {
+		log.Println("error in creating the acm cipher")
+		return []byte{}, errors.New("error in creating the acm cipher")
+	}
+	decryptedBlock, err := crypto.DecryptBlock(ciphertextPlusMac, block, nonce, seqNumber)
+	if err != nil {
+		log.Println("error decrypting a block corresponding to a type4 message")
+		return []byte{}, err
+	}
+		return decryptedBlock, nil
+}
 
 /*
  * YPE 3: Proxy → Server
