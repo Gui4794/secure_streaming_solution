@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	"secure_streaming_solution/config"
 	"secure_streaming_solution/crypto"
@@ -130,6 +131,34 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 
 	fmt.Println("AES key derived:", len(aesKey), "bytes")
 
+	var writeMu sync.Mutex
+	sendMessage := func(messageType uint8, payload []byte) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return protocol.WriteMessage(conn, messageType, payload)
+	}
+
+	sendAlert := func(reason string) {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		if err := protocol.SendAuthenticatedErrorAlert(
+			conn, reason, aesKey, protocol.AlertFromServer,
+		); err != nil {
+			log.Printf("failed to send authenticated Type 255: %v", err)
+		}
+	}
+
+	receiveAlert := func(msg protocol.Message) {
+		reason, err := protocol.ParseAuthenticatedErrorAlert(
+			msg, aesKey, protocol.AlertFromProxy,
+		)
+		if err != nil {
+			log.Printf("invalid or unauthenticated Type 255: %v", err)
+			return
+		}
+		log.Printf("Authenticated Proxy error alert: %s", reason)
+	}
+
 	//the stream server receives the handshakes and parses them
 
 	// Receive Message Type 1
@@ -138,19 +167,14 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 		log.Printf("failed to receive type1: %v", err)
 		return
 	}
+
+	if type1Message.Type == protocol.TypeError {
+		receiveAlert(type1Message)
+		return
+	}
 	if type1Message.Type != protocol.TypeProposal {
-
-		if type1Message.Type == protocol.TypeError {
-			log.Printf("Proxy error alert: %s", string(type1Message.Payload))
-			return
-		}
-
 		log.Printf("expected Type 1, got Type %d", type1Message.Type)
-
-		if err := protocol.SendErrorAlert(conn, "expected Type 1"); err != nil {
-			log.Printf("failed to send Type 255: %v", err)
-		}
-
+		sendAlert("expected Type 1")
 		return
 	}
 
@@ -158,11 +182,7 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 	type1, err := protocol.ParseHandshakeType1(type1Message)
 	if err != nil {
 		log.Printf("invalid type1 payload: %v", err)
-
-		if alertErr := protocol.SendErrorAlert(conn, "invalid Type 1 payload"); alertErr != nil {
-			log.Printf("failed to send Type 255: %v", alertErr)
-		}
-
+		sendAlert("invalid Type 1 payload")
 		return
 	}
 
@@ -173,18 +193,12 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 	)
 	if err != nil {
 		log.Printf("failed to create Type 2: %v", err)
-
-		if alertErr := protocol.SendErrorAlert(conn, "handshake negotiation failed"); alertErr != nil {
-			log.Printf("failed to send Type 255: %v", alertErr)
-		}
-
+		sendAlert("handshake negotiation failed")
 		return
 	}
 
 	//Send type 2 to proxy
-	if err := protocol.WriteMessage(
-		conn, type2Message.Type, type2Message.Payload,
-	); err != nil {
+	if err := sendMessage(type2Message.Type, type2Message.Payload); err != nil {
 		log.Printf("failed to send type2: %v", err)
 		return
 	}
@@ -198,19 +212,13 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 		return
 	}
 
+	if type3Message.Type == protocol.TypeError {
+		receiveAlert(type3Message)
+		return
+	}
 	if type3Message.Type != protocol.TypeRequest {
-
-		if type3Message.Type == protocol.TypeError {
-			log.Printf("Proxy error alert: %s", string(type3Message.Payload))
-			return
-		}
-
 		log.Printf("expected Type 3, got Type %d", type3Message.Type)
-
-		if err := protocol.SendErrorAlert(conn, "expected Type 3"); err != nil {
-			log.Printf("failed to send Type 255: %v", err)
-		}
-
+		sendAlert("expected Type 3")
 		return
 	}
 
@@ -219,33 +227,37 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 	)
 	if err != nil {
 		log.Printf("invalid Type 3: %v", err)
-
-		if alertErr := protocol.SendErrorAlert(conn, "invalid Type 3 payload"); alertErr != nil {
-			log.Printf("failed to send Type 255: %v", alertErr)
-		}
-
+		sendAlert("invalid Type 3 payload")
 		return
 	}
 
 	finalPath, err := resolveMediaPath(root, type3.Media)
-
 	if err != nil {
 		log.Printf("invalid or unavailable media: %v", err)
-
-		if alertErr := protocol.SendErrorAlert(conn, "invalid or unavailable media"); alertErr != nil {
-			log.Printf("failed to send Type 255: %v", alertErr)
-		}
-
+		sendAlert("invalid or unavailable media")
 		return
 	}
 
 	firstSeqB := type3.SequenceNumber + 1
 
-	serveFile(conn, aesKey, finalPath, firstSeqB)
+	go func() {
+		msg, err := protocol.ReadMessage(reader)
+		if err != nil {
+			return
+		}
+		if msg.Type == protocol.TypeError {
+			receiveAlert(msg)
+		} else {
+			log.Printf("unexpected message Type %d during streaming", msg.Type)
+			sendAlert("unexpected message during streaming")
+		}
+		_ = conn.Close()
+	}()
+
+	serveFile(sendMessage, aesKey, finalPath, firstSeqB)
 }
 
 func resolveMediaPath(root, name string) (string, error) {
-
 	if name == "" || strings.ContainsAny(name, "\x00\r\n") {
 		return "", fmt.Errorf("invalid media filename")
 	}
@@ -297,7 +309,7 @@ func resolveMediaPath(root, name string) (string, error) {
 
 // i think we might need to change this, on itttt ass beatriz
 
-func serveFile(out io.Writer, aesKey []byte, path string, firstSeqB uint64) {
+func serveFile(sendMessage func(uint8, []byte) error, aesKey []byte, path string, firstSeqB uint64) {
 	file, err := os.Open(path)
 	if err != nil {
 		log.Printf("Failed to open video: %v", err)
@@ -324,8 +336,7 @@ func serveFile(out io.Writer, aesKey []byte, path string, firstSeqB uint64) {
 				return
 			}
 
-			if err := protocol.WriteMessage(
-				out,
+			if err := sendMessage(
 				protocol.TypeMediaBlock,
 				type4Msg.Payload,
 			); err != nil {
@@ -353,8 +364,7 @@ func serveFile(out io.Writer, aesKey []byte, path string, firstSeqB uint64) {
 		return
 	}
 
-	if err := protocol.WriteMessage(
-		out,
+	if err := sendMessage(
 		type5Message.Type,
 		type5Message.Payload,
 	); err != nil {

@@ -192,6 +192,26 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 	}
 
 	fmt.Println("AES key derived:", len(aesKey), "bytes")
+
+	sendAlert := func(reason string) {
+		if err := protocol.SendAuthenticatedErrorAlert(
+			origin, reason, aesKey, protocol.AlertFromProxy,
+		); err != nil {
+			log.Printf("failed to send authenticated Type 255: %v", err)
+		}
+	}
+
+	receiveAlert := func(msg protocol.Message) {
+		reason, err := protocol.ParseAuthenticatedErrorAlert(
+			msg, aesKey, protocol.AlertFromServer,
+		)
+		if err != nil {
+			log.Printf("invalid or unauthenticated Type 255: %v", err)
+			return
+		}
+		log.Printf("Authenticated Stream Server error alert: %s", reason)
+	}
+
 	//sends type 1 message to the stream server
 	type1Msg, seqX, err := protocol.CreateHandshakeType1(proxyConfig)
 	if err != nil {
@@ -217,29 +237,21 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 
 	// Handle Type 255 error alert
 	if type2Msg.Type == protocol.TypeError {
-		log.Printf("Stream Server error alert: %s", string(type2Msg.Payload))
+		receiveAlert(type2Msg)
 		return
 	}
 
 	// Reject unexpected message types
 	if type2Msg.Type != protocol.TypeConfirmation {
 		log.Printf("expected Type 2, got Type %d", type2Msg.Type)
-
-		if err := protocol.SendErrorAlert(origin, "expected Type 2"); err != nil {
-			log.Printf("failed to send Type 255: %v", err)
-		}
-
+		sendAlert("expected Type 2")
 		return
 	}
 
 	type2, err := protocol.ParseHandshakeType2(type2Msg, seqX, proxyConfig, aesKey)
 	if err != nil {
 		log.Printf("invalid Type 2 payload: %v", err)
-
-		if alertErr := protocol.SendErrorAlert(origin, "invalid Type 2 payload"); alertErr != nil {
-			log.Printf("failed to send Type 255: %v", alertErr)
-		}
-
+		sendAlert("invalid Type 2 payload")
 		return
 	}
 
@@ -247,6 +259,7 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 	type3Msg, err := protocol.CreateHandshakeType3(type2, name, aesKey)
 	if err != nil {
 		log.Println("error in creating type 3 message (proxy)")
+		sendAlert("cannot create Type 3")
 		return
 	}
 	if err := protocol.WriteMessage(
@@ -273,8 +286,7 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 
 		// Handle Type 255 error alert
 		if type4Or5Msg.Type == protocol.TypeError {
-			log.Printf("Stream Server error alert (Type 255): %s",
-				string(type4Or5Msg.Payload))
+			receiveAlert(type4Or5Msg)
 			return
 		}
 
@@ -283,32 +295,19 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 			type4Or5Msg.Type != protocol.TypeEndBlock {
 
 			log.Printf("unexpected message Type %d", type4Or5Msg.Type)
-
-			if err := protocol.SendErrorAlert(origin, "expected Type 4 or Type 5"); err != nil {
-				log.Printf("failed to send Type 255: %v", err)
-			}
-
+			sendAlert("expected Type 4 or Type 5")
 			return
 		}
 
 		// Handle Type 5 - End of stream
-		// Handle Type 5 - End of stream
 		if type4Or5Msg.Type == protocol.TypeEndBlock {
-
-			// Authenticate and validate the END block
 			if err := protocol.ParseType5Message(
 				type4Or5Msg, expectedSeq, aesKey,
 			); err != nil {
-
 				log.Printf("invalid Type 5: %v", err)
-
-				if alertErr := protocol.SendErrorAlert(origin, "invalid Type 5 end block"); alertErr != nil {
-					log.Printf("failed to send Type 255: %v", alertErr)
-				}
-
+				sendAlert("invalid Type 5 end block")
 				return
 			}
-
 			break
 		}
 
@@ -316,11 +315,7 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		seqNumber, nonce, cipherTextPlusMac, err := crypto.UnpackContents(type4Or5Msg.Payload)
 		if err != nil {
 			log.Printf("failed to unpack Type 4: %v", err)
-
-			if alertErr := protocol.SendErrorAlert(origin, "invalid Type 4 payload"); alertErr != nil {
-				log.Printf("failed to send Type 255: %v", alertErr)
-			}
-
+			sendAlert("invalid Type 4 payload")
 			return
 		}
 
@@ -328,26 +323,16 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		decryptedContents, err := crypto.DecryptBlock(cipherTextPlusMac, block, nonce, seqNumber)
 		if err != nil {
 			log.Printf("failed to decrypt Type 4: %v", err)
-
-			if alertErr := protocol.SendErrorAlert(origin, "invalid Type 4 block"); alertErr != nil {
-				log.Printf("failed to send Type 255: %v", alertErr)
-			}
-
+			sendAlert("invalid Type 4 block")
 			return
 		}
 
 		// Validate block sequence number
 		if seqNumber != expectedSeq {
-			log.Printf("invalid sequence: expected %d, got %d",
-				expectedSeq, seqNumber)
-
-			if alertErr := protocol.SendErrorAlert(origin, "invalid block sequence"); alertErr != nil {
-				log.Printf("failed to send Type 255: %v", alertErr)
-			}
-
+			log.Printf("invalid sequence: expected %d, got %d", expectedSeq, seqNumber)
+			sendAlert("invalid block sequence")
 			return
 		}
-
 		expectedSeq++
 
 		// Send decrypted block to browser
