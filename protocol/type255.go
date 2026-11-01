@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"fmt"
 	"io"
+	"sync"
 )
 
 const (
@@ -103,4 +104,42 @@ func ParseAuthenticatedErrorAlert(
 	}
 
 	return string(plaintext), nil
+}
+
+// AlertReplayGuard tracks authenticated Type 255 nonces for one connection.
+// Create a new guard for every new key exchange / session.
+type AlertReplayGuard struct {
+	mu   sync.Mutex
+	seen map[[12]byte]struct{}
+}
+
+// ParseAuthenticatedErrorAlertOnce rejects any alert already accepted in this session.
+func (guard *AlertReplayGuard) ParseAuthenticatedErrorAlertOnce(
+	msg Message,
+	aesKey []byte,
+	expectedSender byte,
+) (string, error) {
+	if guard == nil {
+		return "", fmt.Errorf("missing Type 255 replay guard")
+	}
+
+	// Authenticate first: unauthenticated data must not populate replay state.
+	reason, err := ParseAuthenticatedErrorAlert(msg, aesKey, expectedSender)
+	if err != nil {
+		return "", err
+	}
+
+	var nonce [12]byte
+	copy(nonce[:], msg.Payload[:12])
+
+	guard.mu.Lock()
+	defer guard.mu.Unlock()
+	if _, exists := guard.seen[nonce]; exists {
+		return "", fmt.Errorf("replayed Type 255 alert")
+	}
+	if guard.seen == nil {
+		guard.seen = make(map[[12]byte]struct{})
+	}
+	guard.seen[nonce] = struct{}{}
+	return reason, nil
 }

@@ -148,8 +148,9 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 		}
 	}
 
+	var alertReplayGuard protocol.AlertReplayGuard
 	receiveAlert := func(msg protocol.Message) {
-		reason, err := protocol.ParseAuthenticatedErrorAlert(
+		reason, err := alertReplayGuard.ParseAuthenticatedErrorAlertOnce(
 			msg, aesKey, protocol.AlertFromProxy,
 		)
 		if err != nil {

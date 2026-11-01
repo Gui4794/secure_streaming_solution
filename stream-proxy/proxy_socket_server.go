@@ -201,8 +201,9 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		}
 	}
 
+	var alertReplayGuard protocol.AlertReplayGuard
 	receiveAlert := func(msg protocol.Message) {
-		reason, err := protocol.ParseAuthenticatedErrorAlert(
+		reason, err := alertReplayGuard.ParseAuthenticatedErrorAlertOnce(
 			msg, aesKey, protocol.AlertFromServer,
 		)
 		if err != nil {
