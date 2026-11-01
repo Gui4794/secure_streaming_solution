@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ServerCryptoConfig version="1.0">
+    <SymCipherSuite>
+        <Algorithm>AES</Algorithm>
+        <Mode>GCM</Mode>
+        <InitializationVector>
+            <IV>NULL</IV>
+            <IVSize unit="bits">96</IVSize>
+        </InitializationVector>
+        <Padding>NULL</Padding>
+    </SymCipherSuite>
+
+    <MACSuite>
+        <Algorithm>NULL</Algorithm>
+    </MACSuite>
+
+    <ConfiguredKeys>
+        <SymmetricKey>
+            <SKey>NULL</SKey>
+            <Keysize>256</Keysize>
+        </SymmetricKey>
+
+        <MACKey>
+          <MacKey>NULL</MacKey> <!--hex or base 64 or null-->
+          <MacKeySize>Size</MacKeySize> <!-- number of bits or null-->
+        </MACKey>
+    
+    </ConfiguredKeys>
+</ServerCryptoConfig>
