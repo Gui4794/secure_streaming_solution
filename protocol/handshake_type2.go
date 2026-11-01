@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"secure_streaming_solution/config"
@@ -31,15 +32,19 @@ func CreateHandshakeType2(type1 HandshakeType1, cfg config.ConfigOutput, aesKey 
 	// also temos de autenticar a troca de chaves
 	//
 	//proposed and supported configurations
-	ccc := strings.Join([]string{
-		cfg.CipherAlgorithm, cfg.CipherMode, cfg.IV, cfg.Padding,
-	}, "/")
+	cccFields := []string{cfg.CipherAlgorithm, cfg.CipherMode, cfg.IV, cfg.Padding}
+	if cfg.SymKeySize != 256 {
+		cccFields = append(cccFields, strconv.Itoa(cfg.SymKeySize))
+	}
+	ccc := strings.Join(cccFields, "/")
 
-	pcc := strings.Join([]string{
-		type1.Algorithm, type1.Mode, type1.IV, type1.Padding,
-	}, "/")
+	pccFields := []string{type1.Algorithm, type1.Mode, type1.IV, type1.Padding}
+	if type1.KeySize != 256 {
+		pccFields = append(pccFields, strconv.Itoa(type1.KeySize))
+	}
+	pcc := strings.Join(pccFields, "/")
 
-	if ccc != pcc || cfg.CipherAlgorithm != "AES" || cfg.CipherMode != "GCM" {
+	if ccc != pcc || cfg.SymKeySize != type1.KeySize || cfg.CipherAlgorithm != "AES" || cfg.CipherMode != "GCM" {
 		return Message{}, challenge, fmt.Errorf("proposed configuration not supported")
 	}
 
@@ -130,9 +135,11 @@ func ParseHandshakeType2(msg Message, seqX uint64, cfg config.ConfigOutput, aesK
 	// verify the confirmed cryptographic configuration
 	ccc := string(plaintext[40:])
 
-	expected := strings.Join([]string{
-		cfg.CipherAlgorithm, cfg.CipherMode, cfg.IV, cfg.Padding,
-	}, "/")
+	expectedFields := []string{cfg.CipherAlgorithm, cfg.CipherMode, cfg.IV, cfg.Padding}
+	if cfg.SymKeySize != 256 {
+		expectedFields = append(expectedFields, strconv.Itoa(cfg.SymKeySize))
+	}
+	expected := strings.Join(expectedFields, "/")
 
 	if ccc != expected {
 		return HandshakeType2{}, fmt.Errorf("server confirmed a different configuration")
