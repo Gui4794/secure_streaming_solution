@@ -1,3 +1,7 @@
+// estes comentarios estão aqui porque eu (beatriz) esqueço me do que estou a fazer a meio
+// mas o meu plano é :
+// Diffie-Hellman → sharedSecret → HKDF → AES-256 Key (o dh estabelece o segredo comum, o HKDF transforma numa chave para AES-GCM )
+
 package crypto
 
 import (
@@ -7,6 +11,8 @@ import (
 
 	"golang.org/x/crypto/hkdf"
 )
+
+//recebe o segredo shared que vem do hellman , dps usamos o hkdk-sha256 para derivar uma chave ,devolve uma chave aes
 
 func DeriveAESKey(sharedSecret []byte) ([]byte, error) {
 	if len(sharedSecret) != 32 {

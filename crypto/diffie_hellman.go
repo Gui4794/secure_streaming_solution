@@ -23,3 +23,5 @@ func SharedSecret(privateKey *ecdh.PrivateKey, receivedPublicKey []byte) ([]byte
 	}
 	return privateKey.ECDH(publicKey)
 }
+
+//lalalalalalaal

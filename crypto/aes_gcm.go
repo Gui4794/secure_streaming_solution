@@ -19,7 +19,7 @@ Creates a new ACM cipher based on a key. Since NewCipher takes a []byte as input
 it first converts the key to a []byte
 */
 func CreateAcmCipher(key []byte) (cipher.Block, error) {
-	return aes.NewCipher(key) // a função aceita a chave aes derivada pelo hkdf
+	return aes.NewCipher(key) //a função aceita a chave aes derivada pelo hkdf
 
 }
 
@@ -34,22 +34,22 @@ func GenerateNonce() []byte {
 }
 
 func EncryptBlock(plaintext []byte, block cipher.Block, nonce []byte, seq uint64) ([]byte, error) {
-	// create teh aes-gcm cipher
+	//create teh aes-gcm cipher
 	aesgcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, err
 	}
 
-	// Check if nonce has tamanho certo
+	//Check if nonce has tamanho certo
 	if len(nonce) != aesgcm.NonceSize() {
 		return nil, fmt.Errorf("invalid nonce size")
 	}
 
-	// converte seq number into 8 bytes for authentication
+	//converte seq number into 8 bytes for authentication
 	aad := make([]byte, 8)
 	binary.BigEndian.PutUint64(aad, seq)
 
-	// encrypt the plaintext and sequence number
+	//encrypt the plaintext and sequence number
 	ciphertextPlusMac := aesgcm.Seal(nil, nonce, plaintext, aad)
 
 	return ciphertextPlusMac, nil
@@ -98,20 +98,23 @@ func DecryptBlock(ciphertextPlusMac []byte, block cipher.Block, nonce []byte, se
 	return aesgcm.Open(nil, nonce, ciphertextPlusMac, aad)
 }
 
+//FALTA IMPEDIR AUTENTICIDADE E REPLAYYY
+
 // vamos separar os 3 componentes na decifragem
 func UnpackContents(packet []byte) (uint64, []byte, []byte, error) {
-	// check the minimo packet size ,8-seq 12-nonce 16gcm tag = 36
+
+	//check the minimo packet size ,8-seq 12-nonce 16gcm tag = 36
 	if len(packet) < 36 {
 		return 0, nil, nil, fmt.Errorf("invalid packet size")
 	}
 
-	// extract the seq number
+	//extract the seq number
 	seq := binary.BigEndian.Uint64(packet[:8])
 
-	// extrat the nonce
+	//extrat the nonce
 	nonce := packet[8:20]
 
-	// extract the encrypted block and authentication tag
+	//extract the encrypted block and authentication tag
 	ciphertextPlusMac := packet[20:]
 
 	return seq, nonce, ciphertextPlusMac, nil
