@@ -6,9 +6,10 @@ import (
 	"crypto/subtle"
 	"encoding/binary"
 	"fmt"
-	"secure_streaming_solution/crypto"
 	"strings"
 	"unicode/utf8"
+
+	"secure_streaming_solution/crypto"
 )
 
 type HandshakeType3 struct {
@@ -27,7 +28,7 @@ func validMediaName(media string) bool {
 }
 
 // proxy responds to server challange and requests the media file to start streaming
-func CreateHandshakeType3(HandshakeType2, media string, aesKey []byte) (Message, error) {
+func CreateHandshakeType3(type2 HandshakeType2, media string, aesKey []byte) (Message, error) {
 	if len(aesKey) != 32 {
 		return Message{}, fmt.Errorf("key AES invalida")
 	}
@@ -40,7 +41,7 @@ func CreateHandshakeType3(HandshakeType2, media string, aesKey []byte) (Message,
 	seqZ := type2.SequenceNumber + 1
 
 	// R = SHA256(SRV)
-	response := sha256.Sum256(type2.Challenge[:])
+	// COMMENTED BY GUI response := sha256.Sum256(type2.Challenge[:])
 
 	// Plaintext = SEQZ || R || MEDIA
 	plaintext := make([]byte, 8+32+len(media))
@@ -51,12 +52,12 @@ func CreateHandshakeType3(HandshakeType2, media string, aesKey []byte) (Message,
 		return Message{}, err
 	}
 
-	block, err := crypto.CreateAcmCipher(aeskey)
+	block, err := crypto.CreateAcmCipher(aesKey)
 	if err != nil {
 		return Message{}, err
 	}
 
-	//encifrar and authenticate Type3
+	// encifrar and authenticate Type3
 	ciphertext, err := crypto.EncryptBlock(
 		plaintext, block, nonce, seqZ,
 	)
@@ -68,12 +69,12 @@ func CreateHandshakeType3(HandshakeType2, media string, aesKey []byte) (Message,
 	payload := append(nonce, ciphertext...)
 
 	return Message{
-		Type:    TypeResquest,
+		Type:    TypeRequest,
 		Payload: payload,
 	}, nil
 }
 
-//Dedcrypts anad validates the 3 handshake message
+// Dedcrypts anad validates the 3 handshake message
 // the server verifies SEQZ and the challange responde
 
 func ParseHandshakeType3(msg Message, seqY uint64, challenge [32]byte, aesKey []byte) (HandshakeType3, error) {
@@ -84,21 +85,25 @@ func ParseHandshakeType3(msg Message, seqY uint64, challenge [32]byte, aesKey []
 		return HandshakeType3{}, fmt.Errorf("invalid key or sequence number")
 	}
 
-	//expected seq number
-	seqZ = seqY + 1
+	// ADDED BY GUI: it was unused on the other function, did you mean to do it here?
+	// R = SHA256(SRV)
+	response := sha256.Sum256(challenge[:])
 
-	//extract nonce and ciphertext
-	nonce := msg.Payloa[:12]
+	// expected seq number
+	seqZ := seqY + 1
+
+	// extract nonce and ciphertext
+	nonce := msg.Payload[:12]
 	ciphertext := msg.Payload[12:]
 
 	block, err := crypto.CreateAcmCipher(aesKey)
-	if err !nil {
-		return HandshakeType3{},err
+	if err != nil {
+		return HandshakeType3{}, err
 	}
 
-	//decrypts and uuthenticate the massage
+	// decrypts and uuthenticate the massage
 	plaintext, err := crypto.DecryptBlock(
-		ciphertext, block, nonce, seqz,
+		ciphertext, block, nonce, seqZ,
 	)
 	if err != nil {
 		return HandshakeType3{}, fmt.Errorf("Type 3 uuthentication failed: %w", err)
@@ -108,25 +113,25 @@ func ParseHandshakeType3(msg Message, seqY uint64, challenge [32]byte, aesKey []
 		return HandshakeType3{}, fmt.Errorf("invalid Type 3 plaintext")
 	}
 
-	//verify SEQZ
-	receivedSeq := binary.BigEndian.Uint64(playtext[:8])
+	// verify SEQZ
+	receivedSeq := binary.BigEndian.Uint64(plaintext[:8])
 	if receivedSeq != seqZ {
-		return HandshakeType3, fmt.Errorf("unexpected SEQZ")
+		return HandshakeType3{}, fmt.Errorf("unexpected SEQZ")
 	}
 
-	//verify R = sha256
+	// verify R = sha256
 	var responde [32]byte
 	copy(responde[:], plaintext[8:40])
 
-	expectedResponse := sha256.Sum256(challange[:])
+	expectedResponse := sha256.Sum256(challenge[:])
 
-	if subtle.ConstantTimeCompare(response[:], expectedResponse[:]) != 1{
+	if subtle.ConstantTimeCompare(response[:], expectedResponse[:]) != 1 {
 		return HandshakeType3{}, fmt.Errorf("invalid challange response")
 	}
 
-	//Extract request media name
-	media := strings(plaintext[40:])
-	if !validMediaName(media){
+	// Extract request media name
+	media := string(plaintext[40:])
+	if !validMediaName(media) {
 		return HandshakeType3{}, fmt.Errorf("invalid media name")
 	}
 

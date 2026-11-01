@@ -52,18 +52,17 @@ func ParseConfigFile(serverName string) (ConfigOutput, error) {
 	}
 	xmlContents, err := os.ReadFile(fileToOpen)
 	if err != nil {
-		panic(err)
+		return ConfigOutput{}, err
 	}
 	var configOutput ConfigOutput
 	err = xml.Unmarshal(xmlContents, &configOutput)
 	if err != nil {
-		panic(err)
+		return ConfigOutput{}, err
 	}
 	return configOutput, nil
 }
 
-//for now : Proxy e o Server só aceitam a configuração AES-256-GCM que implementamos
-
+// for now : Proxy e o Server só aceitam a configuração AES-256-GCM que implementamos
 func (c ConfigOutput) Validate() error {
 	if c.CipherAlgorithm != "AES" || c.CipherMode != "GCM" {
 		return fmt.Errorf("unsupported cipher suite: %s/%s",

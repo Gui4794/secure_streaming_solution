@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
@@ -15,6 +14,7 @@ import (
 
 	"secure_streaming_solution/config"
 	"secure_streaming_solution/crypto"
+	"secure_streaming_solution/protocol"
 )
 
 /*
@@ -27,7 +27,6 @@ import (
 const blockSize = 1024
 
 func main() {
-
 	configOutput, err := config.ParseConfigFile(config.StreamServer)
 	if err != nil {
 		log.Fatalf("Failed to read server config: %v", err)
@@ -238,7 +237,7 @@ func parseRange(header string, size int64) (start, end int64, partial, unsatisfi
 	return s, e, true, false
 }
 
-//i think we might need to change this
+// i think we might need to change this
 func serveFile(out io.Writer, aesKey []byte, path string, size int64, rangeHeader string) {
 	start, end, partial, unsatisfiable := parseRange(rangeHeader, size)
 	if unsatisfiable {
@@ -265,7 +264,8 @@ func serveFile(out io.Writer, aesKey []byte, path string, size int64, rangeHeade
 		return
 	}
 
-	block, err := crypto.CreateAcmCipher(aesKey)
+	/*block*/
+	_, err = crypto.CreateAcmCipher(aesKey)
 	if err != nil {
 		log.Printf("Failed to create AES cipher: %v", err)
 		return
@@ -304,41 +304,43 @@ func serveFile(out io.Writer, aesKey []byte, path string, size int64, rangeHeade
 			log.Printf("Failed to read video block: %v", err)
 			return
 		}
-		if type4Message, err := CreateType4Message(sequenceNumber, plaintext, aesKey); err != nil {
+		type4Message, err := protocol.CreateType4Message(sequenceNumber, plaintext, aesKey)
+		if err != nil {
 			log.Printf("something failed while creating a type 4 message")
 			return
 		}
 		// now the idea is to use the AES-GCM library to encrypt this, and then send it
 		/*
-		 * i think the above line already encrypts so we just send it
-		 * just commenting this as an attempt to replace it with the type4 function
-		nonce := crypto.GenerateNonce()
+			 * i think the above line already encrypts so we just send it
+			 * just commenting this as an attempt to replace it with the type4 function
+			nonce := crypto.GenerateNonce()
 
-		encryptedBlock, err := crypto.EncryptBlock(
-			plaintext[:toRead], block, nonce, sequenceNumber,
-		)
-		if err != nil {
-			log.Printf("Encryption failed: %v", err)
-			return
-		}
+			encryptedBlock, err := crypto.EncryptBlock(
+				plaintext[:toRead], block, nonce, sequenceNumber,
+			)
+			if err != nil {
+				log.Printf("Encryption failed: %v", err)
+				return
+			}
 
-		ciphertext, err := crypto.PackageContents(
-			sequenceNumber, nonce, encryptedBlock,
-		)
-		if err != nil {
-			log.Printf("Packaging failed: %v", err)
-			return
-		}
+			ciphertext, err := crypto.PackageContents(
+				sequenceNumber, nonce, encryptedBlock,
+			)
+			if err != nil {
+				log.Printf("Packaging failed: %v", err)
+				return
+			}
+
+			var frameLength [4]byte
+			binary.BigEndian.PutUint32(frameLength[:], uint32(len(ciphertext)))
+
+			if _, err := out.Write(frameLength[:]); err != nil {
+				log.Printf("Failed to send frame length: %v", err)
+				return
+			}
 		*/
-		var frameLength [4]byte
-		binary.BigEndian.PutUint32(frameLength[:], uint32(len(ciphertext)))
 
-		if _, err := out.Write(frameLength[:]); err != nil {
-			log.Printf("Failed to send frame length: %v", err)
-			return
-		}
-
-		if _, err := out.Write(/*ciphertext*/ type4Message); err != nil {
+		if _, err := out.Write( /*ciphertext*/ type4Message); err != nil {
 			log.Printf("Failed to send encrypted block (aka type 4 message): %v", err)
 			return
 		}
