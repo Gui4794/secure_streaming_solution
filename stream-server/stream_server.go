@@ -194,7 +194,18 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 	}
 
 	if type3Message.Type != protocol.TypeRequest {
+
+		if type3Message.Type == protocol.TypeError {
+			log.Printf("Proxy error alert: %s", string(type3Message.Payload))
+			return
+		}
+
 		log.Printf("expected Type 3, got Type %d", type3Message.Type)
+
+		if err := protocol.SendErrorAlert(conn, "expected Type 3"); err != nil {
+			log.Printf("failed to send Type 255: %v", err)
+		}
+
 		return
 	}
 
@@ -202,13 +213,24 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 		type3Message, seqY, challenge, aesKey,
 	)
 	if err != nil {
-		log.Printf("invalid type 3: %v", err)
+		log.Printf("invalid Type 3: %v", err)
+
+		if alertErr := protocol.SendErrorAlert(conn, "invalid Type 3 payload"); alertErr != nil {
+			log.Printf("failed to send Type 255: %v", alertErr)
+		}
+
 		return
 	}
 
 	finalPath, err := resolveMediaPath(root, type3.Media)
+
 	if err != nil {
 		log.Printf("invalid or unavailable media: %v", err)
+
+		if alertErr := protocol.SendErrorAlert(conn, "invalid or unavailable media"); alertErr != nil {
+			log.Printf("failed to send Type 255: %v", alertErr)
+		}
+
 		return
 	}
 

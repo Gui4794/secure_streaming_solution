@@ -3,18 +3,17 @@ package main
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
 	"strconv"
 	"strings"
 	"time"
-	"io"
 
 	"secure_streaming_solution/config"
 	"secure_streaming_solution/crypto"
 	"secure_streaming_solution/protocol"
-
 	//"golang.org/x/text/message"
 )
 
@@ -152,6 +151,7 @@ func servePage(out io.Writer) {
 	fmt.Fprintf(out, "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n", len(page))
 	_, _ = out.Write(page)
 }
+
 // this function is what the proxy server does when talking to the stream server
 func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 	name string, blockDelay time.Duration, proxyConfig config.ConfigOutput,
@@ -198,21 +198,48 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		log.Println("error in sending type 1 message (proxy)")
 		return
 	}
-	protocol.WriteMessage(origin, type1Msg.Type, type1Msg.Payload)
-	if err != nil {
-		log.Println(err.Error())
+	if err := protocol.WriteMessage(
+		origin,
+		type1Msg.Type,
+		type1Msg.Payload,
+	); err != nil {
+		log.Printf("failed to send Type 1: %v", err)
 		return
 	}
 
 	//reads the type 2 message
-	type2Msg, err := protocol.ReadMessage(origin)
+	// Receive Type 2
+	type2Msg, err := protocol.ReadMessage(reader)
 	if err != nil {
-		log.Println("error in reading type 2 message (proxy)")
+		log.Printf("failed to read Type 2: %v", err)
+		return
+	}
+
+	// Handle Type 255 error alert
+	if type2Msg.Type == protocol.TypeError {
+		log.Printf("Stream Server error alert: %s", string(type2Msg.Payload))
+		return
+	}
+
+	// Reject unexpected message types
+	if type2Msg.Type != protocol.TypeConfirmation {
+		log.Printf("expected Type 2, got Type %d", type2Msg.Type)
+
+		if err := protocol.SendErrorAlert(origin, "expected Type 2"); err != nil {
+			log.Printf("failed to send Type 255: %v", err)
+		}
+
+		return
 	}
 
 	type2, err := protocol.ParseHandshakeType2(type2Msg, seqX, proxyConfig, aesKey)
 	if err != nil {
-		log.Println("error in converting type2 message (proxy")
+		log.Printf("invalid Type 2 payload: %v", err)
+
+		if alertErr := protocol.SendErrorAlert(origin, "invalid Type 2 payload"); alertErr != nil {
+			log.Printf("failed to send Type 255: %v", alertErr)
+		}
+
 		return
 	}
 
@@ -222,45 +249,118 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		log.Println("error in creating type 3 message (proxy)")
 		return
 	}
-	err = protocol.WriteMessage(origin, type3Msg.Type, type3Msg.Payload)
-	if err != nil {
-		log.Println("error while writing type 3 message (proxy)")
+	if err := protocol.WriteMessage(
+		origin,
+		type3Msg.Type,
+		type3Msg.Payload,
+	); err != nil {
+		log.Printf("failed to send Type 3: %v", err)
+		return
 	}
 
 	//keeps sending the content until it reaches eof (type 5)
 	fmt.Fprintf(browser, "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\n\r\n")
+
+	// SEQB1 = SEQZ + 1 = SEQY + 2
+	expectedSeq := type2.SequenceNumber + 2
+
 	for {
-		type4Or5Msg, err := protocol.ReadMessage(origin)
+		type4Or5Msg, err := protocol.ReadMessage(reader)
 		if err != nil {
-			log.Println("error in reading message (proxy)")
+			log.Printf("error reading message (proxy): %v", err)
 			return
 		}
-		if (type4Or5Msg.Type != protocol.TypeMediaBlock && type4Or5Msg.Type != protocol.TypeEndBlock) {
-			//type 255 handling could go here
-			log.Println("received message is neither type 4 or 5")
+
+		// Handle Type 255 error alert
+		if type4Or5Msg.Type == protocol.TypeError {
+			log.Printf("Stream Server error alert (Type 255): %s",
+				string(type4Or5Msg.Payload))
+			return
 		}
+
+		// Reject unexpected message types
+		if type4Or5Msg.Type != protocol.TypeMediaBlock &&
+			type4Or5Msg.Type != protocol.TypeEndBlock {
+
+			log.Printf("unexpected message Type %d", type4Or5Msg.Type)
+
+			if err := protocol.SendErrorAlert(origin, "expected Type 4 or Type 5"); err != nil {
+				log.Printf("failed to send Type 255: %v", err)
+			}
+
+			return
+		}
+
+		// Handle Type 5 - End of stream
+		// Handle Type 5 - End of stream
 		if type4Or5Msg.Type == protocol.TypeEndBlock {
+
+			// Authenticate and validate the END block
+			if err := protocol.ParseType5Message(
+				type4Or5Msg, expectedSeq, aesKey,
+			); err != nil {
+
+				log.Printf("invalid Type 5: %v", err)
+
+				if alertErr := protocol.SendErrorAlert(origin, "invalid Type 5 end block"); alertErr != nil {
+					log.Printf("failed to send Type 255: %v", alertErr)
+				}
+
+				return
+			}
+
 			break
 		}
+
+		// Unpack Type 4 payload
 		seqNumber, nonce, cipherTextPlusMac, err := crypto.UnpackContents(type4Or5Msg.Payload)
 		if err != nil {
-			log.Println("error while unpacking the received block (proxy)")
+			log.Printf("failed to unpack Type 4: %v", err)
+
+			if alertErr := protocol.SendErrorAlert(origin, "invalid Type 4 payload"); alertErr != nil {
+				log.Printf("failed to send Type 255: %v", alertErr)
+			}
+
 			return
 		}
+
+		// Decrypt and authenticate Type 4
 		decryptedContents, err := crypto.DecryptBlock(cipherTextPlusMac, block, nonce, seqNumber)
 		if err != nil {
-			log.Println("error while decrypting the received block (proxy)")
-		}
-		_, err = browser.Write(decryptedContents)
-		if err != nil {
-			log.Println("error while sending to browser (proxy)")
+			log.Printf("failed to decrypt Type 4: %v", err)
+
+			if alertErr := protocol.SendErrorAlert(origin, "invalid Type 4 block"); alertErr != nil {
+				log.Printf("failed to send Type 255: %v", alertErr)
+			}
+
 			return
 		}
-		if (blockDelay > 0) {
+
+		// Validate block sequence number
+		if seqNumber != expectedSeq {
+			log.Printf("invalid sequence: expected %d, got %d",
+				expectedSeq, seqNumber)
+
+			if alertErr := protocol.SendErrorAlert(origin, "invalid block sequence"); alertErr != nil {
+				log.Printf("failed to send Type 255: %v", alertErr)
+			}
+
+			return
+		}
+
+		expectedSeq++
+
+		// Send decrypted block to browser
+		_, err = browser.Write(decryptedContents)
+		if err != nil {
+			log.Printf("failed to send block to browser: %v", err)
+			return
+		}
+
+		if blockDelay > 0 {
 			time.Sleep(blockDelay)
 		}
 	}
-
 }
 
 func writeSimpleStatus(out io.Writer, code int, reason string) {
