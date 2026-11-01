@@ -52,6 +52,12 @@ func CreateType4Message(seqNumber uint64, readContents []byte, aesKey []byte) ([
 }
 
 /*
+* Meant for the proxy:
+* parses a Type4 Message
+ */
+func parseType4Message() {}
+
+/*
  * YPE 3: Proxy → Server
      SEQZ = 102
           ↓
