@@ -30,6 +30,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"fmt"
+
 	"secure_streaming_solution/crypto"
 )
 
@@ -46,7 +47,7 @@ func CreateType5Message(seqF uint64, aesKey []byte) (Message, error) {
 		return Message{}, fmt.Errorf("invalid AES key")
 	}
 
-	//generate a random string
+	// generate a random string
 	randomBytes := make([]byte, 16)
 	if _, err := rand.Read(randomBytes); err != nil {
 		return Message{}, err
@@ -69,7 +70,7 @@ func CreateType5Message(seqF uint64, aesKey []byte) (Message, error) {
 
 	nonce := crypto.GenerateNonce()
 
-	//encrypt and authenticate the END block
+	// encrypt and authenticate the END block
 	ciphertext, err := crypto.EncryptBlock(
 		plaintext, block, nonce, seqF,
 	)
@@ -77,7 +78,7 @@ func CreateType5Message(seqF uint64, aesKey []byte) (Message, error) {
 		return Message{}, err
 	}
 
-	//package seqf + nonce + ciphertext + tag
+	// package seqf + nonce + ciphertext + tag
 	payload, err := crypto.PackageContents(seqF, nonce, ciphertext)
 	if err != nil {
 		return Message{}, err
@@ -87,10 +88,8 @@ func CreateType5Message(seqF uint64, aesKey []byte) (Message, error) {
 		Type:    TypeEndBlock,
 		Payload: payload,
 	}, nil
-
 }
 
-//we need a parse function to verificar seqf , autenticar decifrar e confirmar end
 func ParseType5Message(msg Message, expectedSeq uint64, aesKey []byte) error {
 	if msg.Type != TypeEndBlock {
 		return fmt.Errorf("expected Type 5 message")
@@ -105,7 +104,7 @@ func ParseType5Message(msg Message, expectedSeq uint64, aesKey []byte) error {
 		return err
 	}
 
-	//verify sequence number
+	// verify sequence number
 	if seqF != expectedSeq {
 		return fmt.Errorf("unexpected SEQF")
 	}
@@ -144,4 +143,4 @@ func ParseType5Message(msg Message, expectedSeq uint64, aesKey []byte) error {
 // https://cs.opensource.google/go/go/+/refs/tags/go1.27.3:src/crypto/cipher/gcm.go;l=26
 //
 // https://pkg.go.dev/github.com/hazyhaar/go-secretstream
-//https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream -> isto n esta em go mas cifra ficheiros por blocos e indentifica o ultimo bloco , just ask ai to explain it in go
+//https://libsodium.gitbook.io/doc/secret-key_cryptography/secretstream

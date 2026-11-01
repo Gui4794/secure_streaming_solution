@@ -62,7 +62,6 @@ func ParseConfigFile(serverName string) (ConfigOutput, error) {
 	return configOutput, nil
 }
 
-// for now : Proxy e o Server só aceitam a configuração AES-256-GCM que implementamos
 func (c ConfigOutput) Validate() error {
 	if c.CipherAlgorithm != "AES" || c.CipherMode != "GCM" {
 		return fmt.Errorf("unsupported cipher suite: %s/%s",

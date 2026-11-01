@@ -22,14 +22,9 @@ type HandshakeType2 struct {
 func CreateHandshakeType2(type1 HandshakeType1, cfg config.ConfigOutput, aesKey []byte) (Message, [32]byte, error) {
 	var challenge [32]byte
 
-	//ola gui ainda tenho de confirmar este codigo melhor mas estou a morrer de sono !!!!!!!!!!!!!!!!
-	//
-	//
 	// https://pkg.go.dev/crypto/cipher
 	// https://www.rfc-editor.org/info/rfc5869/
-	// and also stuff about handshakes : https://noiseprotocol.org/noise.html
-	//
-	// also temos de autenticar a troca de chaves
+	// https://noiseprotocol.org/noise.html
 	//
 	//proposed and supported configurations
 	cccFields := []string{cfg.CipherAlgorithm, cfg.CipherMode, cfg.IV, cfg.Padding}
@@ -156,8 +151,6 @@ func ParseHandshakeType2(msg Message, seqX uint64, cfg config.ConfigOutput, aesK
 	}, nil
 }
 
-//diagramaaa que poder ficar bem em relatorio e helps beatriz
-//
 /* SECURE PROXY                     STREAM SERVER
    |                                 |
    |<------ X25519 Key Exchange ---->|

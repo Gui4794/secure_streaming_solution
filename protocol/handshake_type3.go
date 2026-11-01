@@ -40,8 +40,6 @@ func CreateHandshakeType3(type2 HandshakeType2, media string, aesKey []byte) (Me
 	// SEQZ = SEQY +1
 	seqZ := type2.SequenceNumber + 1
 
-	// R = SHA256(SRV)
-	// COMMENTED BY GUI response := sha256.Sum256(type2.Challenge[:])
 	response := sha256.Sum256(type2.Challenge[:])
 
 	// Plaintext = SEQZ || R || MEDIA
@@ -83,14 +81,12 @@ func CreateHandshakeType3(type2 HandshakeType2, media string, aesKey []byte) (Me
 
 func ParseHandshakeType3(msg Message, seqY uint64, challenge [32]byte, aesKey []byte) (HandshakeType3, error) {
 	if msg.Type != TypeRequest || len(msg.Payload) < 69 { // nonce + seqz + r + media + tag = 12 + 8 + 32 + 1 + 16 = 69
-		return HandshakeType3{}, fmt.Errorf("invalida Type3 message")
+		return HandshakeType3{}, fmt.Errorf("invalid Type3 message")
 	}
 	if len(aesKey) != 32 || seqY == ^uint64(0) {
 		return HandshakeType3{}, fmt.Errorf("invalid key or sequence number")
 	}
 
-	// ADDED BY GUI: it was unused on the other function, did you mean to do it here?
-	// R = SHA256(SRV)
 	response := sha256.Sum256(challenge[:])
 
 	// expected seq number
@@ -105,12 +101,12 @@ func ParseHandshakeType3(msg Message, seqY uint64, challenge [32]byte, aesKey []
 		return HandshakeType3{}, err
 	}
 
-	// decrypts and uuthenticate the massage
+	// decrypts and authenticates the message
 	plaintext, err := crypto.DecryptBlock(
 		ciphertext, block, nonce, seqZ,
 	)
 	if err != nil {
-		return HandshakeType3{}, fmt.Errorf("Type 3 uuthentication failed: %w", err)
+		return HandshakeType3{}, fmt.Errorf("Type 3 authentication failed: %w", err)
 	}
 
 	if len(plaintext) < 41 {
@@ -128,9 +124,8 @@ func ParseHandshakeType3(msg Message, seqY uint64, challenge [32]byte, aesKey []
 	copy(responde[:], plaintext[8:40])
 
 	if subtle.ConstantTimeCompare(responde[:], response[:]) != 1 {
-		return HandshakeType3{}, fmt.Errorf("invalid challange response")
+		return HandshakeType3{}, fmt.Errorf("invalid challenge response")
 	}
-
 	// Extract request media name
 	media := string(plaintext[40:])
 	if !validMediaName(media) {

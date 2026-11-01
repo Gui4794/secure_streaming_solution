@@ -332,8 +332,6 @@ func resolveMediaPath(root, name string) (string, error) {
 // Like the Java source, malformed ranges fall back to the entire file.
 // Unsatisfiable ranges produce a 416 response.
 
-// i think we might need to change this, on itttt ass beatriz
-
 func serveFile(sendMessage func(uint8, []byte) error, aesKey []byte, path string, firstSeqB uint64) {
 	file, err := os.Open(path)
 	if err != nil {
@@ -380,35 +378,35 @@ func serveFile(sendMessage func(uint8, []byte) error, aesKey []byte, path string
 			log.Printf("Failed to read video: %v", readErr)
 			return
 		}
-	} // fim do ciclo 4
-	// type 5
+		// type 5
 
-	type5Message, err := protocol.CreateType5Message(sequenceNumber, aesKey)
-	if err != nil {
-		log.Printf("Failed to create Type 5: %v", err)
-		return
+		type5Message, err := protocol.CreateType5Message(sequenceNumber, aesKey)
+		if err != nil {
+			log.Printf("Failed to create Type 5: %v", err)
+			return
+		}
+
+		if err := sendMessage(
+			type5Message.Type,
+			type5Message.Payload,
+		); err != nil {
+			log.Printf("Failed to send Type 5: %v", err)
+			return
+		}
 	}
 
-	if err := sendMessage(
-		type5Message.Type,
-		type5Message.Payload,
-	); err != nil {
-		log.Printf("Failed to send Type 5: %v", err)
-		return
-	}
+	/*
+	 * Helper function that reads contents from a socket (conn)
+	 * and tries to parse it into a  Type 1 Message
+	 * note that this assumes that the configs
+	 * are correct and validated
+	 */
+
+	/*
+	 * Helper that checks if a given message is valid,
+	 * according to the config file.
+	 * note that this assumes that the configs
+	 * are correct and validated
+	 * could this be moved to a different file? maybe
+	 */
 }
-
-/*
- * Helper function that reads contents from a socket (conn)
- * and tries to parse it into a  Type 1 Message
- * note that this assumes that the configs
- * are correct and validated
- */
-
-/*
- * Helper that checks if a given message is valid,
- * according to the config file.
- * note that this assumes that the configs
- * are correct and validated
- * could this be moved to a different file? maybe
- */

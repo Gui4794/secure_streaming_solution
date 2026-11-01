@@ -16,5 +16,3 @@ func readLine(reader *bufio.Reader) (string, error) {
 	}
 	return strings.TrimSuffix(strings.TrimSuffix(line, "\n"), "\r"), nil
 }
-
-//alalalalalallalalalal
