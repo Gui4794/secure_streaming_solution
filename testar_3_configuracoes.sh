@@ -25,7 +25,7 @@ set_size() {
 start_servers(){
  "$TMPDIR_SUITE/server" 19881 media > "$TMPDIR_SUITE/server.log" 2>&1 & server_pid=$!
  "$TMPDIR_SUITE/proxy" 19880 localhost 19881 0 > "$TMPDIR_SUITE/proxy.log" 2>&1 & proxy_pid=$!
- sleep 0.45
+ sleep 2
 }
 stop_servers(){
  kill "$proxy_pid" "$server_pid" 2>/dev/null || true
