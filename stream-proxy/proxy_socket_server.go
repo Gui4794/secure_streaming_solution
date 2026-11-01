@@ -178,7 +178,7 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 	}
 	proxyKeyPath := os.Getenv("S3S_PROXY_IDENTITY_KEY")
 	if proxyKeyPath == "" {
-		proxyKeyPath = "keys/proxy_identity.pub.pem"
+		proxyKeyPath = "keys/proxy_identity.pem"
 	}
 
 	serverKeyPath := os.Getenv("S3S_TRUSTED_SERVER_KEY")
