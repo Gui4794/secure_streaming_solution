@@ -39,28 +39,6 @@ func main() {
 		log.Fatalf("Invalid server crypto configuration: %v", err)
 	}
 
-	// TODO: remove these printlns once these variables are used
-	cipherAlgorithm := configOutput.CipherAlgorithm
-	fmt.Println(cipherAlgorithm)
-	cipherMode := configOutput.CipherMode
-	fmt.Println(cipherMode)
-	iv := configOutput.IV
-	fmt.Println(iv)
-	ivSize := configOutput.IVSize
-	fmt.Println(ivSize)
-	padding := configOutput.Padding
-	fmt.Println(padding)
-	macAlgorithm := configOutput.MacAlgorithm
-	fmt.Println(macAlgorithm)
-	symKey := configOutput.SymKey
-	fmt.Println(symKey)
-	symKeySize := configOutput.SymKeySize
-	fmt.Println(symKeySize)
-	macKey := configOutput.MacKey
-	fmt.Println(macKey)
-	macKeySize := configOutput.MacKeySize
-	fmt.Println(macKeySize)
-
 	port := 8081
 	mediaDir := "media"
 	if len(os.Args) > 1 {
@@ -201,7 +179,7 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 		log.Printf("Authenticated Proxy error alert: %s", reason)
 	}
 
-	//the stream server receives the handshakes and parses them
+	// the stream server receives the handshakes and parses them
 
 	// Receive Message Type 1
 	type1Message, err := protocol.ReadMessage(reader)
@@ -239,7 +217,7 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 		return
 	}
 
-	//Send type 2 to proxy
+	// Send type 2 to proxy
 	if err := sendMessage(type2Message.Type, type2Message.Payload); err != nil {
 		log.Printf("failed to send type2: %v", err)
 		return
@@ -247,7 +225,7 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 
 	seqY := type1.SequenceNumber + 1
 
-	//Type3 - receber e validar
+	// Type3 - receber e validar
 	type3Message, err := protocol.ReadMessage(reader)
 	if err != nil {
 		log.Printf("failed to receive type3: %v", err)
@@ -397,8 +375,8 @@ func serveFile(sendMessage func(uint8, []byte) error, aesKey []byte, path string
 			log.Printf("Failed to read video: %v", readErr)
 			return
 		}
-	} //fim do ciclo 4
-	//type 5
+	} // fim do ciclo 4
+	// type 5
 
 	type5Message, err := protocol.CreateType5Message(sequenceNumber, aesKey)
 	if err != nil {
