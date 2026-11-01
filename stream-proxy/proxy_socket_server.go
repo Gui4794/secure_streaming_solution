@@ -22,8 +22,6 @@ import (
 * going to decrypt the media blocks
  */
 
-const blockSize = 1024
-
 const indexHTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>MP4 via socket-only proxy</title></head>
 <body style="font-family:sans-serif;max-width:900px;margin:2rem auto">
@@ -42,7 +40,6 @@ const indexHTML = `<!doctype html>
 </body></html>`
 
 func main() {
-
 	proxyConfigOutput, err := config.ParseConfigFile(config.ProxyServer)
 	if err != nil {
 		log.Fatalf("Failed to read proxy config: %v", err)
@@ -56,7 +53,8 @@ func main() {
 	port := 8080
 	originHost := "localhost"
 	originPort := 8081
-	delayMs := 2000 // Preserves the 2-second delay per block in the supplied Java.
+	delayMs := 2000
+	showExperiments := 0
 
 	if len(os.Args) > 1 {
 		port = mustPort(os.Args[1])
@@ -72,6 +70,12 @@ func main() {
 		delayMs, err = strconv.Atoi(os.Args[4])
 		if err != nil || delayMs < 0 {
 			log.Fatal("blockDelayMs must be a nonnegative integer")
+		}
+		if len(os.Args) > 5 {
+			showExperiments, err = strconv.Atoi(os.Args[5])
+			if err != nil || (showExperiments != 0 && showExperiments != 1) {
+				log.Fatal("showExperiments must be either 0 or 1")
+			}
 		}
 	}
 
@@ -90,7 +94,7 @@ func main() {
 			log.Printf("Accept failed: %v", err)
 			continue
 		}
-		go handle(browser, originHost, originPort, time.Duration(delayMs)*time.Millisecond, proxyConfigOutput)
+		go handle(browser, originHost, originPort, time.Duration(delayMs)*time.Millisecond, proxyConfigOutput, showExperiments)
 	}
 }
 
@@ -102,7 +106,7 @@ func mustPort(value string) int {
 	return port
 }
 
-func handle(browser net.Conn, originHost string, originPort int, blockDelay time.Duration, config config.ConfigOutput) {
+func handle(browser net.Conn, originHost string, originPort int, blockDelay time.Duration, config config.ConfigOutput, showExperiments int) {
 	defer browser.Close()
 
 	reader := bufio.NewReader(browser)
@@ -143,7 +147,7 @@ func handle(browser net.Conn, originHost string, originPort int, blockDelay time
 		writeSimpleStatus(browser, 400, "Bad Request")
 		return
 	}
-	relayFromOrigin(browser, originHost, originPort, name, blockDelay, config)
+	relayFromOrigin(browser, originHost, originPort, name, blockDelay, config, showExperiments)
 }
 
 func servePage(out io.Writer) {
@@ -154,7 +158,7 @@ func servePage(out io.Writer) {
 
 // this function is what the proxy server does when talking to the stream server
 func relayFromOrigin(browser io.Writer, originHost string, originPort int,
-	name string, blockDelay time.Duration, proxyConfig config.ConfigOutput,
+	name string, blockDelay time.Duration, proxyConfig config.ConfigOutput, showExperiments int,
 ) {
 	origin, err := net.Dial("tcp", net.JoinHostPort(originHost, strconv.Itoa(originPort)))
 	if err != nil {
@@ -205,7 +209,6 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		return
 	}
 
-	// Se a autenticação falhar, a ligação é rejeitada antes da derivação da chave AES.
 	sharedSecret, err := establishSharedSecret(proxyPrivateKey, streamPublicKey)
 	if err != nil {
 		log.Printf("failed to compute shared secret: %v", err)
@@ -254,7 +257,7 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		log.Printf("Authenticated Stream Server error alert: %s", reason)
 	}
 
-	//sends type 1 message to the stream server
+	// sends type 1 message to the stream server
 	type1Msg, seqX, err := protocol.CreateHandshakeType1(proxyConfig)
 	if err != nil {
 		log.Println("error in sending type 1 message (proxy)")
@@ -269,7 +272,7 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		return
 	}
 
-	//reads the type 2 message
+	// reads the type 2 message
 	// Receive Type 2
 	type2Msg, err := protocol.ReadMessage(reader)
 	if err != nil {
@@ -297,7 +300,7 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		return
 	}
 
-	//sends the type 3 message
+	// sends the type 3 message
 	type3Msg, err := protocol.CreateHandshakeType3(type2, name, aesKey)
 	if err != nil {
 		log.Println("error in creating type 3 message (proxy)")
@@ -313,7 +316,7 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		return
 	}
 
-	//keeps sending the content until it reaches eof (type 5)
+	// keeps sending the content until it reaches eof (type 5)
 	fmt.Fprintf(browser, "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\n\r\n")
 
 	// SEQB1 = SEQZ + 1 = SEQY + 2
@@ -410,14 +413,16 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		throughputKBps = float64(decryptedBytes) / 1000 / elapsed
 	}
 
-	log.Println("===== STREAMING METRICS =====")
-	log.Printf("Encrypted Type 4 blocks received: %d", encryptedBlocks)
-	log.Printf("Decrypted blocks forwarded: %d", decryptedBlocks)
-	log.Printf("Encrypted Type 4 payload volume: %d bytes", encryptedBytes)
-	log.Printf("Decrypted video bytes forwarded: %d bytes", decryptedBytes)
-	log.Printf("Duration (after Type 3 through validated Type 5): %.3f s", elapsed)
-	log.Printf("Video throughput: %.2f kB/s", throughputKBps)
-	log.Println("=============================")
+	if showExperiments == 1 {
+		log.Println("===== STREAMING METRICS =====")
+		log.Printf("Encrypted Type 4 blocks received: %d", encryptedBlocks)
+		log.Printf("Decrypted blocks forwarded: %d", decryptedBlocks)
+		log.Printf("Encrypted Type 4 payload volume: %d bytes", encryptedBytes)
+		log.Printf("Decrypted video bytes forwarded: %d bytes", decryptedBytes)
+		log.Printf("Duration (after Type 3 through validated Type 5): %.3f s", elapsed)
+		log.Printf("Video throughput: %.2f kB/s", throughputKBps)
+		log.Println("=============================")
+	}
 }
 
 func writeSimpleStatus(out io.Writer, code int, reason string) {
