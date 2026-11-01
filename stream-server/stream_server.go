@@ -149,6 +149,11 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 	}
 
 	fmt.Println("AES key derived:", len(aesKey), "bytes")
+	mediaKey, err := crypto.DeriveMediaKey(sharedSecret, serverConfig.SymKeySize)
+	if err != nil {
+		log.Printf("failed to derive media key: %v", err)
+		return
+	}
 
 	var writeMu sync.Mutex
 	sendMessage := func(messageType uint8, payload []byte) error {
@@ -274,7 +279,7 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 		_ = conn.Close()
 	}()
 
-	serveFile(sendMessage, aesKey, finalPath, firstSeqB)
+	serveFile(sendMessage, mediaKey, finalPath, firstSeqB)
 }
 
 func resolveMediaPath(root, name string) (string, error) {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"secure_streaming_solution/crypto"
-
 	//"golang.org/x/text/message"
 )
 
@@ -35,7 +34,7 @@ func ParametersFromType3(msg Message, seqY uint64, challenge [32]byte, aesKey []
  */
 
 func CreateType4Message(seqNumber uint64, readContents []byte, aesKey []byte) (Message, error) {
-	if len(aesKey) != 32 {
+	if len(aesKey) != 16 && len(aesKey) != 24 && len(aesKey) != 32 {
 		return Message{}, fmt.Errorf("invalid AES key")
 	}
 
@@ -59,18 +58,17 @@ func CreateType4Message(seqNumber uint64, readContents []byte, aesKey []byte) (M
 	}
 
 	return Message{
-		Type: TypeMediaBlock,
+		Type:    TypeMediaBlock,
 		Payload: payload,
 	}, nil
 }
 
-
-//Meant for the Proxy Server: parses a Type4 Message
+// Meant for the Proxy Server: parses a Type4 Message
 func ParseType4Message(type4Message []byte, expectedSeqNumber uint64, aesKey []byte) ([]byte, error) {
 	seqNumber, nonce, ciphertextPlusMac, err := crypto.UnpackContents(type4Message)
 
-	if len(aesKey) != 32 {
-    return nil, errors.New("invalid AES key")
+	if len(aesKey) != 16 && len(aesKey) != 24 && len(aesKey) != 32 {
+		return nil, errors.New("invalid AES key")
 	}
 
 	if err != nil {
@@ -78,8 +76,8 @@ func ParseType4Message(type4Message []byte, expectedSeqNumber uint64, aesKey []b
 		return []byte{}, err
 	}
 	if seqNumber != expectedSeqNumber {
-			log.Println("sequence number in the type4 message is not the expected sequence number")
-			return []byte{}, errors.New("sequence number in the type4 message is not the expected sequence number")
+		log.Println("sequence number in the type4 message is not the expected sequence number")
+		return []byte{}, errors.New("sequence number in the type4 message is not the expected sequence number")
 	}
 	block, err := crypto.CreateAcmCipher(aesKey)
 	if err != nil {
@@ -91,7 +89,7 @@ func ParseType4Message(type4Message []byte, expectedSeqNumber uint64, aesKey []b
 		log.Println("error decrypting a block corresponding to a type4 message")
 		return []byte{}, err
 	}
-		return decryptedBlock, nil
+	return decryptedBlock, nil
 }
 
 /*

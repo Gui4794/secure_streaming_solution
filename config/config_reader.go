@@ -73,7 +73,7 @@ func (c ConfigOutput) Validate() error {
 		return fmt.Errorf("invalid IV size: %d", c.IVSize)
 	}
 
-	if c.SymKeySize != 256 {
+	if c.SymKeySize != 128 && c.SymKeySize != 192 && c.SymKeySize != 256 {
 		return fmt.Errorf("invalid key size: %d", c.SymKeySize)
 	}
 

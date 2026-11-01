@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"secure_streaming_solution/config"
@@ -15,6 +16,7 @@ type HandshakeType1 struct {
 	Mode           string
 	IV             string
 	Padding        string
+	KeySize        int
 }
 
 // The Proxy sends SEQX and its proposed cryptographic
@@ -46,6 +48,9 @@ func CreateHandshakeType1(cfg config.ConfigOutput) (Message, uint64, error) {
 	}
 
 	// PCC format: ALG/MODE/IV/Padding
+	if cfg.SymKeySize != 256 {
+		fields = append(fields, strconv.Itoa(cfg.SymKeySize))
+	}
 	pcc := strings.Join(fields, "/")
 
 	// Payload = SEQX (8 bytes) + PCC
@@ -77,7 +82,7 @@ func ParseHandshakeType1(msg Message) (HandshakeType1, error) {
 	}
 
 	fields := strings.Split(string(msg.Payload[8:]), "/")
-	if len(fields) != 4 {
+	if len(fields) != 4 && len(fields) != 5 {
 		return HandshakeType1{}, fmt.Errorf("invalid PCC format")
 	}
 
@@ -87,12 +92,22 @@ func ParseHandshakeType1(msg Message) (HandshakeType1, error) {
 		}
 	}
 
+	keySize := 256
+	if len(fields) == 5 {
+		var err error
+		keySize, err = strconv.Atoi(fields[4])
+		if err != nil || (keySize != 128 && keySize != 192 && keySize != 256) {
+			return HandshakeType1{}, fmt.Errorf("invalid proposed AES key size")
+		}
+	}
+
 	return HandshakeType1{
 		SequenceNumber: seqX,
 		Algorithm:      fields[0],
 		Mode:           fields[1],
 		IV:             fields[2],
 		Padding:        fields[3],
+		KeySize:        keySize,
 	}, nil
 }
 

@@ -28,7 +28,7 @@ const indexHTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>MP4 via socket-only proxy</title></head>
 <body style="font-family:sans-serif;max-width:900px;margin:2rem auto">
   <h1>MP4 streamed through a plain-socket proxy</h1>
-  <p>File: <input id="f" value="sample.mp4">
+  <p>File: <input id="f" value="dante.mp4">
      <button onclick="load()">Load</button></p>
   <video id="v" controls preload="metadata" style="width:100%"></video>
   <script>
@@ -219,7 +219,14 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		return
 	}
 
-	block, err := crypto.CreateAcmCipher(aesKey)
+	mediaKey, err := crypto.DeriveMediaKey(sharedSecret, proxyConfig.SymKeySize)
+	if err != nil {
+		log.Printf("failed to derive media key: %v", err)
+		writeSimpleStatus(browser, 502, "Bad Gateway")
+		return
+	}
+
+	block, err := crypto.CreateAcmCipher(mediaKey)
 	if err != nil {
 		writeSimpleStatus(browser, 502, "Bad Gateway")
 		return
@@ -343,7 +350,7 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		// Handle Type 5 - End of stream
 		if type4Or5Msg.Type == protocol.TypeEndBlock {
 			if err := protocol.ParseType5Message(
-				type4Or5Msg, expectedSeq, aesKey,
+				type4Or5Msg, expectedSeq, mediaKey,
 			); err != nil {
 				log.Printf("invalid Type 5: %v", err)
 				sendAlert("invalid Type 5 end block")

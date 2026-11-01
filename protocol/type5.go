@@ -41,13 +41,13 @@ const endRandomSize = 32
  * encrypted and authenticated using aes-gcm
  */
 
-func CreateType5Message(seqF uint64, aesKey []byte) (Message, error){
-	if len(aesKey) != 32 {
+func CreateType5Message(seqF uint64, aesKey []byte) (Message, error) {
+	if len(aesKey) != 16 && len(aesKey) != 24 && len(aesKey) != 32 {
 		return Message{}, fmt.Errorf("invalid AES key")
 	}
 
 	//generate a random string
-	randomBytes := make([]byte,16)
+	randomBytes := make([]byte, 16)
 	if _, err := rand.Read(randomBytes); err != nil {
 		return Message{}, err
 	}
@@ -78,69 +78,67 @@ func CreateType5Message(seqF uint64, aesKey []byte) (Message, error){
 	}
 
 	//package seqf + nonce + ciphertext + tag
-	payload, err := crypto.PackageContents(seqF, nonce, ciphertext,)
+	payload, err := crypto.PackageContents(seqF, nonce, ciphertext)
 	if err != nil {
 		return Message{}, err
 	}
 
-	return Message {
-		Type: TypeEndBlock,
+	return Message{
+		Type:    TypeEndBlock,
 		Payload: payload,
 	}, nil
 
 }
 
+//we need a parse function to verificar seqf , autenticar decifrar e confirmar end
+func ParseType5Message(msg Message, expectedSeq uint64, aesKey []byte) error {
+	if msg.Type != TypeEndBlock {
+		return fmt.Errorf("expected Type 5 message")
+	}
 
-	//we need a parse function to verificar seqf , autenticar decifrar e confirmar end
-	func ParseType5Message (msg Message, expectedSeq uint64, aesKey []byte) error {
-		if msg.Type != TypeEndBlock {
-			return fmt.Errorf("expected Type 5 message")
-		}
+	if len(aesKey) != 16 && len(aesKey) != 24 && len(aesKey) != 32 {
+		return fmt.Errorf("invalid AES key")
+	}
 
-		if len(aesKey) != 32 {
-			return fmt.Errorf("invalid AES key")
-		}
+	seqF, nonce, ciphertext, err := crypto.UnpackContents(msg.Payload)
+	if err != nil {
+		return err
+	}
 
-		seqF, nonce, ciphertext, err := crypto.UnpackContents(msg.Payload)
-		if err != nil {
-			return err
-		}
+	//verify sequence number
+	if seqF != expectedSeq {
+		return fmt.Errorf("unexpected SEQF")
+	}
 
-		//verify sequence number
-		if seqF != expectedSeq {
-			return fmt.Errorf("unexpected SEQF")
-		}
+	block, err := crypto.CreateAcmCipher(aesKey)
+	if err != nil {
+		return err
+	}
+	// autheticate and decrypt
+	plaintext, err := crypto.DecryptBlock(
+		ciphertext, block, nonce, expectedSeq,
+	)
+	if err != nil {
+		return fmt.Errorf("type 5 auuthentication failed: %w", err)
+	}
 
-		block, err := crypto.CreateAcmCipher(aesKey)
-		if err != nil {
-			return err
-		}
-		// autheticate and decrypt
-		plaintext, err := crypto.DecryptBlock(
-			ciphertext, block, nonce, expectedSeq,
-		)
-		if err != nil {
-			return fmt.Errorf("type 5 auuthentication failed: %w", err)
-		}
+	// verify endblock structure
+	if len(plaintext) != 8+3+endRandomSize {
+		return fmt.Errorf("invalid END block size")
+	}
 
-		// verify endblock structure
-		if len(plaintext) != 8+3+endRandomSize{
-			return fmt.Errorf("invalid END block size")
-		}
+	innerSeq := binary.BigEndian.Uint64(plaintext[:8])
+	if innerSeq != expectedSeq {
+		return fmt.Errorf("invalid END block sequence")
+	}
 
-		innerSeq := binary.BigEndian.Uint64(plaintext[:8])
-		if innerSeq != expectedSeq {
-    return fmt.Errorf("invalid END block sequence")
-		}
+	// Verify END marker
+	if string(plaintext[8:11]) != "END" {
+		return fmt.Errorf("invalid END marker")
+	}
 
-		// Verify END marker
-		if string(plaintext[8:11]) != "END" {
-    		return fmt.Errorf("invalid END marker")
-		}
-
-		return nil
+	return nil
 }
-
 
 //sites usados
 // https://cs.opensource.google/go/go/+/refs/tags/go1.27.3:src/crypto/cipher/gcm.go;l=26

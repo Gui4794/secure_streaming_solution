@@ -394,7 +394,7 @@ func TestSSCEd25519BindingAndConfig(t *testing.T) {
 		{"unsupported_algorithm", func(c *config.ConfigOutput) { c.CipherAlgorithm = "DES" }},
 		{"unsupported_mode", func(c *config.ConfigOutput) { c.CipherMode = "CBC" }},
 		{"wrong_IV_size", func(c *config.ConfigOutput) { c.IVSize = 64 }},
-		{"wrong_AES_key_size", func(c *config.ConfigOutput) { c.SymKeySize = 128 }},
+		{"wrong_AES_key_size", func(c *config.ConfigOutput) { c.SymKeySize = 64 }},
 		{"wrong_padding", func(c *config.ConfigOutput) { c.Padding = "PKCS7" }},
 		{"wrong_MAC", func(c *config.ConfigOutput) { c.MacAlgorithm = "HMAC-SHA256" }},
 	} {
