@@ -106,7 +106,7 @@ func ParseAuthenticatedErrorAlert(
 	return string(plaintext), nil
 }
 
-// AlertReplayGuard tracks authenticated Type 255 nonces for one connection.
+// tracks authenticated Type 255 nonces for one connection.
 // Create a new guard for every new key exchange / session.
 type AlertReplayGuard struct {
 	mu   sync.Mutex

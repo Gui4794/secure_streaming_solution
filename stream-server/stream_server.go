@@ -117,6 +117,47 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 		return
 	}
 
+	/*
+		 Carrega a chave privada Ed25519 do Stream Server
+			Carrega a chave pública confiável do Proxy.
+			Assina a troca X25519
+			Verifica a assinatura do Proxy.
+			Só continua se a autenticação for válida.
+	*/
+	serverKeyPath := os.Getenv("S3S_SERVER_IDENTITY_KEY")
+	if serverKeyPath == "" {
+		serverKeyPath = "keys/server_identity.pem"
+	}
+
+	proxyKeyPath := os.Getenv("S3S_TRUSTED_PROXY_KEY")
+	if proxyKeyPath == "" {
+		proxyKeyPath = "keys/proxy_identity.pub.pem"
+	}
+
+	serverIdentity, err := protocol.LoadEd25519PrivateKey(serverKeyPath)
+	if err != nil {
+		log.Printf("failed to load server identity: %v", err)
+		return
+	}
+
+	trustedProxyIdentity, err := protocol.LoadEd25519PublicKey(proxyKeyPath)
+	if err != nil {
+		log.Printf("failed to load trusted Proxy identity: %v", err)
+		return
+	}
+
+	if err := protocol.AuthenticateX25519Server(
+		reader,
+		conn,
+		serverIdentity,
+		trustedProxyIdentity,
+		streamPublicKey.Bytes(),
+		proxyPublicKey.Bytes(),
+	); err != nil {
+		log.Printf("X25519 authentication failed: %v", err)
+		return
+	}
+
 	sharedSecret, err := establishSharedSecret(streamPrivateKey, proxyPublicKey)
 	if err != nil {
 		fmt.Println("something went wrong in computing the shared secret")

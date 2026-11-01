@@ -28,7 +28,7 @@ const indexHTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>MP4 via socket-only proxy</title></head>
 <body style="font-family:sans-serif;max-width:900px;margin:2rem auto">
   <h1>MP4 streamed through a plain-socket proxy</h1>
-  <p>File: <input id="f" value="sample.mp4">
+  <p>File: <input id="f" value="dante.mp4">
      <button onclick="load()">Load</button></p>
   <video id="v" controls preload="metadata" style="width:100%"></video>
   <script>
@@ -172,6 +172,41 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		writeSimpleStatus(browser, 502, "Bad Gateway")
 		return
 	}
+
+	proxyKeyPath := os.Getenv("S3S_PROXY_IDENTITY_KEY")
+	if proxyKeyPath == "" {
+		proxyKeyPath = "keys/proxy_identity.pem"
+	}
+
+	serverKeyPath := os.Getenv("S3S_TRUSTED_SERVER_KEY")
+	if serverKeyPath == "" {
+		serverKeyPath = "keys/server_identity.pub.pem"
+	}
+
+	proxyIdentity, err := protocol.LoadEd25519PrivateKey(proxyKeyPath)
+	if err != nil {
+		log.Printf("failed to load Proxy identity: %v", err)
+		writeSimpleStatus(browser, 502, "Bad Gateway")
+		return
+	}
+
+	trustedServerIdentity, err := protocol.LoadEd25519PublicKey(serverKeyPath)
+	if err != nil {
+		log.Printf("failed to load trusted Stream Server identity: %v", err)
+		writeSimpleStatus(browser, 502, "Bad Gateway")
+		return
+	}
+
+	if err := protocol.AuthenticateX25519Proxy(
+		reader, origin, proxyIdentity, trustedServerIdentity,
+		streamPublicKey.Bytes(), proxyPublicKey.Bytes(),
+	); err != nil {
+		log.Printf("X25519 authentication failed: %v", err)
+		writeSimpleStatus(browser, 502, "Bad Gateway")
+		return
+	}
+
+	// Se a autenticação falhar, a ligação é rejeitada antes da derivação da chave AES.
 	sharedSecret, err := establishSharedSecret(proxyPrivateKey, streamPublicKey)
 	if err != nil {
 		log.Printf("failed to compute shared secret: %v", err)

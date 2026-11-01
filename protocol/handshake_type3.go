@@ -42,9 +42,13 @@ func CreateHandshakeType3(type2 HandshakeType2, media string, aesKey []byte) (Me
 
 	// R = SHA256(SRV)
 	// COMMENTED BY GUI response := sha256.Sum256(type2.Challenge[:])
+	response := sha256.Sum256(type2.Challenge[:])
 
 	// Plaintext = SEQZ || R || MEDIA
 	plaintext := make([]byte, 8+32+len(media))
+	binary.BigEndian.PutUint64(plaintext[:8], seqZ)
+	copy(plaintext[8:40], response[:])
+	copy(plaintext[40:], media)
 
 	// generate a new AES-GCM nonce
 	nonce := make([]byte, 12)
@@ -123,9 +127,7 @@ func ParseHandshakeType3(msg Message, seqY uint64, challenge [32]byte, aesKey []
 	var responde [32]byte
 	copy(responde[:], plaintext[8:40])
 
-	expectedResponse := sha256.Sum256(challenge[:])
-
-	if subtle.ConstantTimeCompare(response[:], expectedResponse[:]) != 1 {
+	if subtle.ConstantTimeCompare(responde[:], response[:]) != 1 {
 		return HandshakeType3{}, fmt.Errorf("invalid challange response")
 	}
 

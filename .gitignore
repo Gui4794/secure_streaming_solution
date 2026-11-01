@@ -2,3 +2,7 @@
 __MACOSX/*
 WA1-Materials/*
 project1_ideas.md
+
+
+# Ed25519 private identity keys
+keys/*_identity.pem
