@@ -172,7 +172,12 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 		aesKey,
 	)
 	if err != nil {
-		log.Printf("failed to create type2: %v", err)
+		log.Printf("failed to create Type 2: %v", err)
+
+		if alertErr := protocol.SendErrorAlert(conn, "handshake negotiation failed"); alertErr != nil {
+			log.Printf("failed to send Type 255: %v", alertErr)
+		}
+
 		return
 	}
 
