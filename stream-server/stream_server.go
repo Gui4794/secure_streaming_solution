@@ -23,8 +23,7 @@ import (
 * a version of diffie-hellman with authentication is to be implemented
  */
 
-const
-(
+const (
 	blockSize = 1024
 )
 
@@ -105,8 +104,8 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 	defer conn.Close()
 
 	/*
-	* the server generates its private key
-    * as soon as the connection with the proxy is accepted
+			* the server generates its private key
+		    * as soon as the connection with the proxy is accepted
 	*/
 	streamPublicKey, streamPrivateKey := generateKeyPair()
 	sendPublicKey(streamPublicKey, conn)
@@ -131,7 +130,6 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 
 	fmt.Println("AES key derived:", len(aesKey), "bytes")
 
-
 	//the stream server receives the handshakes and parses them
 
 	// Receive Message Type 1
@@ -140,15 +138,31 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 		log.Printf("failed to receive type1: %v", err)
 		return
 	}
-
 	if type1Message.Type != protocol.TypeProposal {
+
+		if type1Message.Type == protocol.TypeError {
+			log.Printf("Proxy error alert: %s", string(type1Message.Payload))
+			return
+		}
+
 		log.Printf("expected Type 1, got Type %d", type1Message.Type)
+
+		if err := protocol.SendErrorAlert(conn, "expected Type 1"); err != nil {
+			log.Printf("failed to send Type 255: %v", err)
+		}
+
 		return
 	}
 
+	// Parse Type 1
 	type1, err := protocol.ParseHandshakeType1(type1Message)
 	if err != nil {
 		log.Printf("invalid type1 payload: %v", err)
+
+		if alertErr := protocol.SendErrorAlert(conn, "invalid Type 1 payload"); alertErr != nil {
+			log.Printf("failed to send Type 255: %v", alertErr)
+		}
+
 		return
 	}
 
@@ -161,7 +175,6 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 		log.Printf("failed to create type2: %v", err)
 		return
 	}
-
 
 	//Send type 2 to proxy
 	if err := protocol.WriteMessage(
@@ -185,9 +198,8 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 		return
 	}
 
-
 	type3, err := protocol.ParseHandshakeType3(
-    type3Message, seqY, challenge, aesKey,
+		type3Message, seqY, challenge, aesKey,
 	)
 	if err != nil {
 		log.Printf("invalid type 3: %v", err)
@@ -203,12 +215,10 @@ func handle(conn net.Conn, root string, serverConfig config.ConfigOutput) {
 	firstSeqB := type3.SequenceNumber + 1
 
 	serveFile(conn, aesKey, finalPath, firstSeqB)
-	}
-
-
-
+}
 
 func resolveMediaPath(root, name string) (string, error) {
+
 	if name == "" || strings.ContainsAny(name, "\x00\r\n") {
 		return "", fmt.Errorf("invalid media filename")
 	}
@@ -254,7 +264,6 @@ func resolveMediaPath(root, name string) (string, error) {
 	return finalPath, nil
 }
 
-
 // parseRange accepts a single HTTP bytes range (start-end, start-, or -suffix).
 // Like the Java source, malformed ranges fall back to the entire file.
 // Unsatisfiable ranges produce a 416 response.
@@ -286,32 +295,32 @@ func serveFile(out io.Writer, aesKey []byte, path string, firstSeqB uint64) {
 			if err != nil {
 				log.Printf("Failed to create Type 4: %v", err)
 				return
-		}
-
-		if err := protocol.WriteMessage(
-			out,
-			protocol.TypeMediaBlock,
-			type4Msg.Payload,
-		); err != nil {
-			log.Printf("Failed to send Type 4: %v", err)
-			return
-		}
-
-				sequenceNumber++
 			}
 
-	if readErr == io.EOF {
-				break
-			}
-
-			if readErr != nil {
-				log.Printf("Failed to read video: %v", readErr)
+			if err := protocol.WriteMessage(
+				out,
+				protocol.TypeMediaBlock,
+				type4Msg.Payload,
+			); err != nil {
+				log.Printf("Failed to send Type 4: %v", err)
 				return
 			}
-} //fim do ciclo 4
- //type 5
 
- type5Message, err := protocol.CreateType5Message(sequenceNumber, aesKey)
+			sequenceNumber++
+		}
+
+		if readErr == io.EOF {
+			break
+		}
+
+		if readErr != nil {
+			log.Printf("Failed to read video: %v", readErr)
+			return
+		}
+	} //fim do ciclo 4
+	//type 5
+
+	type5Message, err := protocol.CreateType5Message(sequenceNumber, aesKey)
 	if err != nil {
 		log.Printf("Failed to create Type 5: %v", err)
 		return
@@ -326,8 +335,6 @@ func serveFile(out io.Writer, aesKey []byte, path string, firstSeqB uint64) {
 		return
 	}
 }
-
-
 
 /*
  * Helper function that reads contents from a socket (conn)
