@@ -28,7 +28,7 @@ const indexHTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>MP4 via socket-only proxy</title></head>
 <body style="font-family:sans-serif;max-width:900px;margin:2rem auto">
   <h1>MP4 streamed through a plain-socket proxy</h1>
-  <p>File: <input id="f" value="dante.mp4">
+  <p>File: <input id="f" value="sample.mp4">
      <button onclick="load()">Load</button></p>
   <video id="v" controls preload="metadata" style="width:100%"></video>
   <script>
@@ -172,7 +172,6 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		writeSimpleStatus(browser, 502, "Bad Gateway")
 		return
 	}
-
 	proxyKeyPath := os.Getenv("S3S_PROXY_IDENTITY_KEY")
 	if proxyKeyPath == "" {
 		proxyKeyPath = "keys/proxy_identity.pem"
@@ -313,6 +312,12 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 	// SEQB1 = SEQZ + 1 = SEQY + 2
 	expectedSeq := type2.SequenceNumber + 2
 
+	var encryptedBlocks int
+	var decryptedBlocks int
+	var encryptedBytes int64
+	var decryptedBytes int64
+	startTime := time.Now()
+
 	for {
 		type4Or5Msg, err := protocol.ReadMessage(reader)
 		if err != nil {
@@ -348,6 +353,8 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		}
 
 		// Unpack Type 4 payload
+		encryptedBlocks++
+		encryptedBytes += int64(len(type4Or5Msg.Payload))
 		seqNumber, nonce, cipherTextPlusMac, err := crypto.UnpackContents(type4Or5Msg.Payload)
 		if err != nil {
 			log.Printf("failed to unpack Type 4: %v", err)
@@ -372,16 +379,38 @@ func relayFromOrigin(browser io.Writer, originHost string, originPort int,
 		expectedSeq++
 
 		// Send decrypted block to browser
-		_, err = browser.Write(decryptedContents)
+		n, err := browser.Write(decryptedContents)
 		if err != nil {
 			log.Printf("failed to send block to browser: %v", err)
 			return
 		}
+		if n != len(decryptedContents) {
+			log.Printf("incomplete block write: %d of %d bytes", n, len(decryptedContents))
+			return
+		}
+
+		decryptedBlocks++
+		decryptedBytes += int64(n)
 
 		if blockDelay > 0 {
 			time.Sleep(blockDelay)
 		}
 	}
+
+	elapsed := time.Since(startTime).Seconds()
+	var throughputKBps float64
+	if elapsed > 0 {
+		throughputKBps = float64(decryptedBytes) / 1000 / elapsed
+	}
+
+	log.Println("===== STREAMING METRICS =====")
+	log.Printf("Encrypted Type 4 blocks received: %d", encryptedBlocks)
+	log.Printf("Decrypted blocks forwarded: %d", decryptedBlocks)
+	log.Printf("Encrypted Type 4 payload volume: %d bytes", encryptedBytes)
+	log.Printf("Decrypted video bytes forwarded: %d bytes", decryptedBytes)
+	log.Printf("Duration (after Type 3 through validated Type 5): %.3f s", elapsed)
+	log.Printf("Video throughput: %.2f kB/s", throughputKBps)
+	log.Println("=============================")
 }
 
 func writeSimpleStatus(out io.Writer, code int, reason string) {
